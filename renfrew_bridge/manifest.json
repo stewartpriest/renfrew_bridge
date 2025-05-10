@@ -1,0 +1,13 @@
+{
+  "domain": "renfrew_bridge",
+  "name": "Renfrew Bridge Status",
+  "version": "1.0.0",
+  "documentation": "https://github.com/your-username/renfrew-bridge",
+  "requirements": [
+    "beautifulsoup4",
+    "requests"
+  ],
+  "dependencies": [],
+  "codeowners": ["@your-github-username"],
+  "iot_class": "cloud_polling"
+}

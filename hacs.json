@@ -1,0 +1,8 @@
+{
+  "name": "Renfrew Bridge Status",
+  "content_in_root": false,
+  "domain": "renfrew_bridge",
+  "zip_release": false,
+  "filename": "custom_components/renfrew_bridge/manifest.json",
+  "render_readme": true
+}

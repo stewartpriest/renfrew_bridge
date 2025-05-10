@@ -1,0 +1,10 @@
+{
+  "title": "Renfrew Bridge Status",
+  "config": {
+    "step": {
+      "user": {
+        "title": "No configuration required"
+      }
+    }
+  }
+}
