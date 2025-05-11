@@ -1,8 +1,11 @@
 {
-  "name": "Renfrew Bridge Status",
+  "name": "Renfrew Bridge",
   "content_in_root": false,
-  "domain": "renfrew_bridge",
-  "zip_release": false,
-  "filename": "custom_components/renfrew_bridge/manifest.json",
-  "render_readme": true
+  "domains": ["sensor"],
+  "country": "gb",
+  "homeassistant": "2023.0.0",
+  "render_readme": true,
+  "iot_class": "cloud_polling",
+  "codeowners": ["@stewartpriest"],
+  "documentation": "https://github.com/stewartpriest/renfrew_bridge"
 }

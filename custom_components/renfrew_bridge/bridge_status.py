@@ -3,9 +3,13 @@ from bs4 import BeautifulSoup
 import requests
 import re
 from datetime import datetime, timedelta
+import logging
 
+_LOGGER = logging.getLogger(__name__)
 
 def get_bridge_status():
+    _LOGGER.info("Renfrew Bridge: get_bridge_status called")
+
     url = 'https://www.renfrewshire.gov.uk/renfrew-bridge'
     response = requests.get(url)
     soup = BeautifulSoup(response.content, 'html.parser')
@@ -19,8 +23,6 @@ def get_bridge_status():
 
     if newsflash_div:
         paragraphs = newsflash_div.find_all('p')
-        current_date = None
-
         for p in paragraphs:
             text = p.get_text(strip=True)
             lowered = text.lower()
@@ -29,7 +31,7 @@ def get_bridge_status():
                 planned_closures = False
 
             elif "last updated" in lowered:
-                match = re.match(r'last updated\s*[-–]?\s*(.+)', text, flags=re.I)
+                match = re.search(r'last updated\s*[-–]?\s*(.+)', text, flags=re.I)
                 if match:
                     cleaned = match.group(1).strip()
                     cleaned = re.sub(r'(?i)(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s+', '', cleaned)
@@ -42,35 +44,24 @@ def get_bridge_status():
                     except ValueError:
                         pass
 
-            elif re.search(r'\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b', lowered):
-                date_match = re.search(r'(?i)(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s+(\d{1,2})(st|nd|rd|th)?\s+([a-zA-Z]+)', text)
-                if date_match:
-                    day = int(date_match.group(2))
-                    month = date_match.group(4)
-                    try:
-                        year = datetime.now().year
-                        parsed = datetime.strptime(f"{day} {month} {year}", "%d %B %Y")
-                        if parsed.month == 1 and datetime.now().month == 12:
-                            parsed = parsed.replace(year=year + 1)
-                        current_date = parsed
-                    except ValueError:
-                        current_date = None
-
-            elif current_date and re.search(r'\d{1,2}:\d{2}\s*(am|pm)?\s*to\s*\d{1,2}:\d{2}\s*(am|pm)?', lowered):
-                time_ranges = re.findall(r'(\d{1,2}:\d{2}\s*[ap]m?)\s*to\s*(\d{1,2}:\d{2}\s*[ap]m?)', text, flags=re.I)
-                for start_str, end_str in time_ranges:
-                    try:
-                        start_dt = datetime.strptime(start_str.strip(), "%I:%M%p").replace(
-                            year=current_date.year, month=current_date.month, day=current_date.day)
-                        end_dt = datetime.strptime(end_str.strip(), "%I:%M%p").replace(
-                            year=current_date.year, month=current_date.month, day=current_date.day)
-                        if end_dt < start_dt:
-                            end_dt += timedelta(days=1)
-                            if end_dt.month == 1 and start_dt.month == 12:
-                                end_dt = end_dt.replace(year=end_dt.year + 1)
-                        closure_times.append((start_dt, end_dt))
-                    except ValueError:
-                        pass
+            # New format: e.g. "Sunday 11th May from 09:15pm to 10:45pm"
+            match = re.search(
+                r'(?i)(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s+(\d{1,2})(st|nd|rd|th)?\s+([a-zA-Z]+)\s+from\s+(\d{1,2}:\d{2}\s*[ap]m)\s+to\s+(\d{1,2}:\d{2}\s*[ap]m)',
+                text)
+            if match:
+                try:
+                    day = int(match.group(2))
+                    month = match.group(4)
+                    start_time_str = match.group(5)
+                    end_time_str = match.group(6)
+                    year = datetime.now().year
+                    start_dt = datetime.strptime(f"{day} {month} {year} {start_time_str}", "%d %B %Y %I:%M%p")
+                    end_dt = datetime.strptime(f"{day} {month} {year} {end_time_str}", "%d %B %Y %I:%M%p")
+                    if end_dt < start_dt:
+                        end_dt += timedelta(days=1)
+                    closure_times.append((start_dt, end_dt))
+                except ValueError as e:
+                    _LOGGER.error("Error parsing closure time: %s", e)
 
     now = datetime.now()
     upcoming = [c for c in closure_times if c[1] > now]
@@ -80,8 +71,11 @@ def get_bridge_status():
     else:
         bridge_closed = False
 
-    return {
+    result = {
         'bridge_closed': bridge_closed,
         'next_closure_start': next_closure[0].isoformat() if next_closure else None,
         'next_closure_end': next_closure[1].isoformat() if next_closure else None
     }
+
+    _LOGGER.info("Renfrew Bridge: returning %s", result)
+    return result
