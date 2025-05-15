@@ -21,6 +21,8 @@ def get_bridge_status():
     next_closure = None
     bridge_closed = False
 
+    current_explicit_date = None
+
     if newsflash_div:
         paragraphs = newsflash_div.find_all(['p', 'li', 'div'])
         for p in paragraphs:
@@ -46,8 +48,19 @@ def get_bridge_status():
                     except ValueError:
                         pass
 
+            # Extract date to carry forward to time-only entries
+            date_match = re.search(r'(monday|tuesday|wednesday|thursday|friday|saturday|sunday)?\s*(\d{1,2})(st|nd|rd|th)?\s+([a-zA-Z]+)', text, re.I)
+            if date_match:
+                try:
+                    day = int(date_match.group(2))
+                    month = date_match.group(4)
+                    year = datetime.now().year
+                    current_explicit_date = datetime.strptime(f"{day} {month} {year}", "%d %B %Y")
+                except ValueError:
+                    pass
+
             match1 = re.search(
-                r'(?i)(monday|tuesday|wednesday|thursday|friday|saturday|sunday)(\d{1,2})(st|nd|rd|th)?\s+([a-zA-Z]+)\s*[-\u2013]?\s*(\d{1,2}:\d{2}\s*[ap]m)\s*(?:until|to)\s*(\d{1,2}:\d{2}\s*[ap]m)',
+                r'(?i)(monday|tuesday|wednesday|thursday|friday|saturday|sunday)?(\d{1,2})(st|nd|rd|th)?\s+([a-zA-Z]+)\s*[-\u2013]?\s*(\d{1,2}:\d{2}\s*[ap]m)\s*(?:until|to)\s*(\d{1,2}:\d{2}\s*[ap]m)',
                 text
             )
             if match1:
@@ -66,29 +79,34 @@ def get_bridge_status():
                 except ValueError as e:
                     _LOGGER.error("Error parsing format 1 closure time: %s", e)
 
-            match2 = re.search(r'(\d{1,2}:\d{2}(?:\s*[ap]m)?)\s*(?:until|to)\s*(\d{1,2}:\d{2}(?:\s*[ap]m)?)', text, re.I)
-            if match2:
+            match3 = re.search(
+                r'(?:from\s*)?(\d{1,2}:\d{2}\s*[ap]\.??\s*m?)\s*(?:until|to)\s*(\d{1,2}:\d{2}\s*[ap]\.??\s*m?)',
+                text,
+                re.I
+            )
+            if match3:
                 try:
-                    now = datetime.now()
-                    today = now.strftime("%d %B %Y")
-                    start_time_str = match2.group(1).strip()
-                    end_time_str = match2.group(2).strip()
+                    start_time_str = re.sub(r'\.', '', match3.group(1).strip().lower().replace(' ', ''))
+                    end_time_str = re.sub(r'\.', '', match3.group(2).strip().lower().replace(' ', ''))
+
+                    target_date = current_explicit_date or datetime.now()
+                    date_str = target_date.strftime("%d %B %Y")
 
                     for fmt in ["%H:%M", "%I:%M%p"]:
                         try:
-                            start_dt = datetime.strptime(f"{today} {start_time_str}", f"%d %B %Y {fmt}")
-                            end_dt = datetime.strptime(f"{today} {end_time_str}", f"%d %B %Y {fmt}")
+                            start_dt = datetime.strptime(f"{date_str} {start_time_str}", f"%d %B %Y {fmt}")
+                            end_dt = datetime.strptime(f"{date_str} {end_time_str}", f"%d %B %Y {fmt}")
                             if end_dt < start_dt:
                                 end_dt += timedelta(days=1)
                             closure_times.append((start_dt, end_dt))
-                            _LOGGER.info("Parsed Format 2 closure: %s to %s", start_dt, end_dt)
+                            _LOGGER.info("Parsed Format 3 closure: %s to %s", start_dt, end_dt)
                             break
                         except ValueError:
                             continue
                     else:
-                        _LOGGER.error("Failed to parse times in Format 2: %s to %s", start_time_str, end_time_str)
+                        _LOGGER.error("Failed to parse times in Format 3: %s to %s", start_time_str, end_time_str)
                 except Exception as e:
-                    _LOGGER.error("Error handling Format 2 time: %s", e)
+                    _LOGGER.error("Error handling Format 3 time: %s", e)
 
     _LOGGER.info("Total parsed closures: %d", len(closure_times))
 
