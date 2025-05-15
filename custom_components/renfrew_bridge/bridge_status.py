@@ -1,4 +1,3 @@
-
 from bs4 import BeautifulSoup
 import requests
 import re
@@ -11,7 +10,8 @@ def get_bridge_status():
     _LOGGER.info("Renfrew Bridge: get_bridge_status called")
 
     url = 'https://www.renfrewshire.gov.uk/renfrew-bridge'
-    response = requests.get(url)
+    headers = {"User-Agent": "Mozilla/5.0"}
+    response = requests.get(url, headers=headers)
     soup = BeautifulSoup(response.content, 'html.parser')
 
     newsflash_div = soup.find('div', class_='newsflash__padding')
@@ -22,19 +22,21 @@ def get_bridge_status():
     bridge_closed = False
 
     if newsflash_div:
-        paragraphs = newsflash_div.find_all('p')
+        paragraphs = newsflash_div.find_all(['p', 'li', 'div'])
         for p in paragraphs:
             text = p.get_text(strip=True)
+            text = text.replace("a.m.", "am").replace("p.m.", "pm").replace(".", "").lower()
             lowered = text.lower()
 
-            if "no closure currently planned" in lowered:
+            if re.search(r'no\s+(further\s+)?closures?\s+(scheduled|planned)', lowered):
                 planned_closures = False
+                _LOGGER.info("Detected phrasing indicating no planned closures: '%s'", text)
 
             elif "last updated" in lowered:
-                match = re.search(r'last updated\s*[-–]?\s*(.+)', text, flags=re.I)
+                match = re.search(r'last updated\s*[-\u2013]?\s*(.+)', text, flags=re.I)
                 if match:
                     cleaned = match.group(1).strip()
-                    cleaned = re.sub(r'(?i)(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s+', '', cleaned)
+                    cleaned = re.sub(r'(?i)(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s*', '', cleaned)
                     cleaned = re.sub(r'(\d+)(st|nd|rd|th)', r'\1', cleaned)
                     cleaned = re.sub(r'[^\w\s:apm]', '', cleaned, flags=re.I)
                     try:
@@ -44,32 +46,66 @@ def get_bridge_status():
                     except ValueError:
                         pass
 
-            # New format: e.g. "Sunday 11th May from 09:15pm to 10:45pm"
-            match = re.search(
-                r'(?i)(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s+(\d{1,2})(st|nd|rd|th)?\s+([a-zA-Z]+)\s+from\s+(\d{1,2}:\d{2}\s*[ap]m)\s+to\s+(\d{1,2}:\d{2}\s*[ap]m)',
-                text)
-            if match:
+            match1 = re.search(
+                r'(?i)(monday|tuesday|wednesday|thursday|friday|saturday|sunday)(\d{1,2})(st|nd|rd|th)?\s+([a-zA-Z]+)\s*[-\u2013]?\s*(\d{1,2}:\d{2}\s*[ap]m)\s*(?:until|to)\s*(\d{1,2}:\d{2}\s*[ap]m)',
+                text
+            )
+            if match1:
                 try:
-                    day = int(match.group(2))
-                    month = match.group(4)
-                    start_time_str = match.group(5)
-                    end_time_str = match.group(6)
+                    day = int(match1.group(2))
+                    month = match1.group(4)
+                    start_time_str = match1.group(5)
+                    end_time_str = match1.group(6)
                     year = datetime.now().year
                     start_dt = datetime.strptime(f"{day} {month} {year} {start_time_str}", "%d %B %Y %I:%M%p")
                     end_dt = datetime.strptime(f"{day} {month} {year} {end_time_str}", "%d %B %Y %I:%M%p")
                     if end_dt < start_dt:
                         end_dt += timedelta(days=1)
                     closure_times.append((start_dt, end_dt))
+                    _LOGGER.info("Parsed Format 1 closure: %s to %s", start_dt, end_dt)
                 except ValueError as e:
-                    _LOGGER.error("Error parsing closure time: %s", e)
+                    _LOGGER.error("Error parsing format 1 closure time: %s", e)
+
+            match2 = re.search(r'(\d{1,2}:\d{2}(?:\s*[ap]m)?)\s*(?:until|to)\s*(\d{1,2}:\d{2}(?:\s*[ap]m)?)', text, re.I)
+            if match2:
+                try:
+                    now = datetime.now()
+                    today = now.strftime("%d %B %Y")
+                    start_time_str = match2.group(1).strip()
+                    end_time_str = match2.group(2).strip()
+
+                    for fmt in ["%H:%M", "%I:%M%p"]:
+                        try:
+                            start_dt = datetime.strptime(f"{today} {start_time_str}", f"%d %B %Y {fmt}")
+                            end_dt = datetime.strptime(f"{today} {end_time_str}", f"%d %B %Y {fmt}")
+                            if end_dt < start_dt:
+                                end_dt += timedelta(days=1)
+                            closure_times.append((start_dt, end_dt))
+                            _LOGGER.info("Parsed Format 2 closure: %s to %s", start_dt, end_dt)
+                            break
+                        except ValueError:
+                            continue
+                    else:
+                        _LOGGER.error("Failed to parse times in Format 2: %s to %s", start_time_str, end_time_str)
+                except Exception as e:
+                    _LOGGER.error("Error handling Format 2 time: %s", e)
+
+    _LOGGER.info("Total parsed closures: %d", len(closure_times))
 
     now = datetime.now()
     upcoming = [c for c in closure_times if c[1] > now]
     if upcoming:
         next_closure = min(upcoming, key=lambda c: c[0])
         bridge_closed = next_closure[0] <= now <= next_closure[1]
-    else:
+    elif not planned_closures:
+        _LOGGER.info("Confirmed: No closures currently scheduled.")
         bridge_closed = False
+    else:
+        _LOGGER.info("No upcoming closures found after filtering by current time.")
+        bridge_closed = False
+
+    if not closure_times and planned_closures:
+        _LOGGER.warning("No closure times were parsed from the page.")
 
     result = {
         'bridge_closed': bridge_closed,
