@@ -1,4 +1,3 @@
-
 import logging
 from datetime import datetime, timedelta
 
@@ -11,7 +10,7 @@ _LOGGER = logging.getLogger(__name__)
 async def async_setup_entry(hass, config_entry, async_add_entities):
     _LOGGER.info("Renfrew Bridge: async_setup_entry called")
 
-    refresh_minutes = config_entry.options.get(CONF_REFRESH_MINUTES) or                       config_entry.data.get(CONF_REFRESH_MINUTES, DEFAULT_REFRESH_MINUTES)
+    refresh_minutes = config_entry.options.get(CONF_REFRESH_MINUTES) or config_entry.data.get(CONF_REFRESH_MINUTES, DEFAULT_REFRESH_MINUTES)
 
     entry_id = config_entry.entry_id
 
@@ -33,6 +32,7 @@ class TimedUpdateSensor(SensorEntity):
         self._entry_id = entry_id
         slug = name.lower().replace(" ", "_")
         self._attr_unique_id = f"{entry_id}_{slug}"
+        self._attr_icon = self._default_icon()
 
     def should_update(self):
         return datetime.now() - self._last_update >= self._refresh
@@ -46,6 +46,9 @@ class TimedUpdateSensor(SensorEntity):
             "entry_type": "service"
         }
 
+    def _default_icon(self):
+        return "mdi:calendar-clock"
+
 
 class RenfrewBridgeStatusSensor(TimedUpdateSensor):
     def update(self):
@@ -56,6 +59,7 @@ class RenfrewBridgeStatusSensor(TimedUpdateSensor):
             _LOGGER.info("Bridge status sensor received: %s", status)
             self._attr_native_value = "closed" if status['bridge_closed'] else "open"
             self._last_update = datetime.now()
+            self._attr_icon = "mdi:bridge" if not status['bridge_closed'] else "mdi:bridge"
         except Exception as e:
             _LOGGER.error("Failed to update Renfrew Bridge status: %s", e)
             self._attr_native_value = None
