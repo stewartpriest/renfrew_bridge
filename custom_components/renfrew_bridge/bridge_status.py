@@ -20,14 +20,16 @@ def get_bridge_status():
     last_updated_datetime = None
     next_closure = None
     bridge_closed = False
-
     current_explicit_date = None
 
     if newsflash_div:
         paragraphs = newsflash_div.find_all(['p', 'li', 'div'])
         for p in paragraphs:
-            text = p.get_text(strip=True)
-            text = text.replace("a.m.", "am").replace("p.m.", "pm").replace(".", "").lower()
+            text = p.get_text(separator=" ", strip=True)
+            text = text.replace("\xa0", " ").replace("  ", " ").strip()
+            text = text.replace("a.m.", "am").replace("p.m.", "pm").replace(".", ":").lower()
+            _LOGGER.debug("Raw line: '%s'", text)
+
             lowered = text.lower()
 
             if re.search(r'no\s+(further\s+)?closures?\s+(scheduled|planned)', lowered):
@@ -42,25 +44,30 @@ def get_bridge_status():
                     cleaned = re.sub(r'(\d+)(st|nd|rd|th)', r'\1', cleaned)
                     cleaned = re.sub(r'[^\w\s:apm]', '', cleaned, flags=re.I)
                     try:
-                        year = datetime.now().year
-                        cleaned_with_year = re.sub(r'(\d{1,2} \w+)\s+at', rf'\1 {year} at', cleaned)
-                        last_updated_datetime = datetime.strptime(cleaned_with_year, "%d %B %Y at %I:%M%p")
-                    except ValueError:
-                        pass
+                        if not re.search(r'\d{4}', cleaned):
+                            year = datetime.now().year
+                            cleaned = re.sub(r'(\d{1,2} \w+)\s+at', rf'\1 {year} at', cleaned)
+                        last_updated_datetime = datetime.strptime(cleaned, "%d %B %Y at %I:%M%p")
+                        _LOGGER.debug("Parsed last updated: %s", last_updated_datetime)
+                    except ValueError as e:
+                        _LOGGER.warning("Failed to parse last updated line: %s", e)
 
-            # Extract date to carry forward to time-only entries
-            date_match = re.search(r'(monday|tuesday|wednesday|thursday|friday|saturday|sunday)?\s*(\d{1,2})(st|nd|rd|th)?\s+([a-zA-Z]+)', text, re.I)
+            date_match = re.search(
+                r'(?i)(monday|tuesday|wednesday|thursday|friday|saturday|sunday)?\s*([a-zA-Z]+)\s+(\d{1,2})(st|nd|rd|th)?\s+(\d{4})',
+                text.strip().rstrip(":")
+            )
             if date_match:
                 try:
-                    day = int(date_match.group(2))
-                    month = date_match.group(4)
-                    year = datetime.now().year
+                    month = date_match.group(2)
+                    day = int(date_match.group(3))
+                    year = int(date_match.group(5))
                     current_explicit_date = datetime.strptime(f"{day} {month} {year}", "%d %B %Y")
-                except ValueError:
-                    pass
+                    _LOGGER.debug("Set current_explicit_date to: %s", current_explicit_date)
+                except ValueError as e:
+                    _LOGGER.warning("Failed to parse date: %s", e)
 
             match1 = re.search(
-                r'(?i)(monday|tuesday|wednesday|thursday|friday|saturday|sunday)?(\d{1,2})(st|nd|rd|th)?\s+([a-zA-Z]+)\s*[-\u2013]?\s*(\d{1,2}:\d{2}\s*[ap]m)\s*(?:until|to)\s*(\d{1,2}:\d{2}\s*[ap]m)',
+                r'(?i)(monday|tuesday|wednesday|thursday|friday|saturday|sunday)?(\d{1,2})(st|nd|rd|th)?\s+([a-zA-Z]+)\s*[-–]?\s*(\d{1,2}:\d{2}\s*[ap]m)\s*(?:until|to)\s*(\d{1,2}:\d{2}\s*[ap]m)',
                 text
             )
             if match1:
@@ -76,37 +83,43 @@ def get_bridge_status():
                         end_dt += timedelta(days=1)
                     closure_times.append((start_dt, end_dt))
                     _LOGGER.info("Parsed Format 1 closure: %s to %s", start_dt, end_dt)
+                    continue
                 except ValueError as e:
                     _LOGGER.error("Error parsing format 1 closure time: %s", e)
 
-            match3 = re.search(
-                r'(?:from\s*)?(\d{1,2}:\d{2}\s*[ap]\.??\s*m?)\s*(?:until|to)\s*(\d{1,2}:\d{2}\s*[ap]\.??\s*m?)',
-                text,
-                re.I
-            )
+            match3 = re.search(r'(?:from\s*)?(\d{1,2}:\d{2}\s*[ap]m)\s*(?:until|to)\s*(\d{1,2}:\d{2}\s*[ap]m)', text, re.I)
             if match3:
                 try:
-                    start_time_str = re.sub(r'\.', '', match3.group(1).strip().lower().replace(' ', ''))
-                    end_time_str = re.sub(r'\.', '', match3.group(2).strip().lower().replace(' ', ''))
-
-                    target_date = current_explicit_date or datetime.now()
-                    date_str = target_date.strftime("%d %B %Y")
-
-                    for fmt in ["%H:%M", "%I:%M%p"]:
-                        try:
-                            start_dt = datetime.strptime(f"{date_str} {start_time_str}", f"%d %B %Y {fmt}")
-                            end_dt = datetime.strptime(f"{date_str} {end_time_str}", f"%d %B %Y {fmt}")
-                            if end_dt < start_dt:
-                                end_dt += timedelta(days=1)
-                            closure_times.append((start_dt, end_dt))
-                            _LOGGER.info("Parsed Format 3 closure: %s to %s", start_dt, end_dt)
-                            break
-                        except ValueError:
-                            continue
-                    else:
-                        _LOGGER.error("Failed to parse times in Format 3: %s to %s", start_time_str, end_time_str)
+                    if not current_explicit_date:
+                        _LOGGER.debug("Skipping Format 3 - no current_explicit_date set.")
+                        continue
+                    start_str = match3.group(1).lower()
+                    end_str = match3.group(2).lower()
+                    date_str = current_explicit_date.strftime("%d %B %Y")
+                    start_dt = datetime.strptime(f"{date_str} {start_str}", "%d %B %Y %I:%M%p")
+                    end_dt = datetime.strptime(f"{date_str} {end_str}", "%d %B %Y %I:%M%p")
+                    if end_dt < start_dt:
+                        end_dt += timedelta(days=1)
+                    closure_times.append((start_dt, end_dt))
+                    _LOGGER.info("Parsed Format 3 closure: %s to %s", start_dt, end_dt)
+                    continue
                 except Exception as e:
-                    _LOGGER.error("Error handling Format 3 time: %s", e)
+                    _LOGGER.error("Error parsing format 3 time: %s", e)
+
+            match4 = re.search(r'(\d{1,2}:\d{2}\s*[ap]m)\s+to\s+(\d{1,2}:\d{2}\s*[ap]m)', text, re.I)
+            if match4 and current_explicit_date:
+                try:
+                    start_str = match4.group(1).lower()
+                    end_str = match4.group(2).lower()
+                    date_str = current_explicit_date.strftime("%d %B %Y")
+                    start_dt = datetime.strptime(f"{date_str} {start_str}", "%d %B %Y %I:%M%p")
+                    end_dt = datetime.strptime(f"{date_str} {end_str}", "%d %B %Y %I:%M%p")
+                    if end_dt < start_dt:
+                        end_dt += timedelta(days=1)
+                    closure_times.append((start_dt, end_dt))
+                    _LOGGER.info("Parsed Format 4 closure: %s to %s", start_dt, end_dt)
+                except Exception as e:
+                    _LOGGER.error("Error parsing format 4 time: %s", e)
 
     _LOGGER.info("Total parsed closures: %d", len(closure_times))
 
@@ -128,7 +141,8 @@ def get_bridge_status():
     result = {
         'bridge_closed': bridge_closed,
         'next_closure_start': next_closure[0].isoformat() if next_closure else None,
-        'next_closure_end': next_closure[1].isoformat() if next_closure else None
+        'next_closure_end': next_closure[1].isoformat() if next_closure else None,
+        'closure_times': closure_times  # ✅ added so count sensor can use it
     }
 
     _LOGGER.info("Renfrew Bridge: returning %s", result)
