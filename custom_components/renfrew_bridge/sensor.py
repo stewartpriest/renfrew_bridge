@@ -73,8 +73,12 @@ class RenfrewBridgeNextClosureSensor(TimedUpdateSensor):
             return
         try:
             status = get_bridge_status()
-            _LOGGER.info("Next closure sensor received: %s", status)
-            self._attr_native_value = status['next_closure_start']
+            value = status.get("next_closure_start")
+            if value is None:
+                _LOGGER.warning("Next closure sensor: No upcoming closures detected (next_closure_start is None)")
+            else:
+                _LOGGER.info("Next closure sensor: next_closure_start = %s", value)
+            self._attr_native_value = value
             self._last_update = datetime.now()
         except Exception as e:
             _LOGGER.error("Failed to update Renfrew Bridge next closure: %s", e)
@@ -87,13 +91,15 @@ class RenfrewBridgeNextClosurePrettySensor(TimedUpdateSensor):
             return
         try:
             status = get_bridge_status()
-            _LOGGER.info("Pretty closure sensor received: %s", status)
-            raw = status['next_closure_start']
-            if raw:
-                dt = datetime.fromisoformat(raw)
-                self._attr_native_value = dt.strftime("%d/%m/%Y %H:%M")
-            else:
+            raw = status.get("next_closure_start")
+            if raw is None:
+                _LOGGER.warning("Pretty closure sensor: next_closure_start is None (no upcoming closures?)")
                 self._attr_native_value = "None"
+            else:
+                dt = datetime.fromisoformat(raw)
+                pretty = dt.strftime("%d/%m/%Y %H:%M")
+                _LOGGER.info("Pretty closure sensor: formatted %s to '%s'", raw, pretty)
+                self._attr_native_value = pretty
             self._last_update = datetime.now()
         except Exception as e:
             _LOGGER.error("Failed to format Renfrew Bridge next closure pretty: %s", e)
