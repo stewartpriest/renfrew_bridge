@@ -1,7 +1,7 @@
 {
   "name": "Renfrew Bridge",
   "content_in_root": false,
-  "domains": ["sensor"],
+  "domains": ["renfrew_bridge"],
   "country": "gb",
   "homeassistant": "2023.0.0",
   "render_readme": true,
