@@ -3,7 +3,7 @@
   "name": "Renfrew Bridge Status",
   "version": "1.1.0",
   "documentation": "https://github.com/stewartpriest/renfrew_bridge",
-  "requirements": ["beautifulsoup4", "requests"],
+  "requirements": ["beautifulsoup4", "requests", "cloudscraper==1.2.71"],
   "dependencies": [],
   "codeowners": ["@stewartpriest"],
   "iot_class": "cloud_polling",
