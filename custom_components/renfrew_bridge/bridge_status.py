@@ -214,6 +214,36 @@ def get_bridge_status():
             except Exception as e:
                 _LOGGER.error("Error parsing format 4 time: %s", e)
 
+        # NEW FORMAT: Handle <p>Date</p> followed by sibling <li>Time Range</li>
+        if p.name == "p":
+            date_match = re.match(r'(?i)(monday|tuesday|wednesday|thursday|friday|saturday|sunday)?\s*(\d{1,2})\s+([a-zA-Z]+)\s+(\d{4})', text)
+            if date_match:
+                try:
+                    day = int(date_match.group(2))
+                    month = date_match.group(3)
+                    year = int(date_match.group(4))
+                    date_context = datetime.strptime(f"{day} {month} {year}", "%d %B %Y")
+                    _LOGGER.debug("Set date_context from nested <p>: %s", date_context)
+
+                    next_tag = p.find_next_sibling()
+                    while next_tag and next_tag.name not in ["li", "p"]:
+                        next_tag = next_tag.find_next_sibling()
+
+                    if next_tag and next_tag.name == "li":
+                        time_text = next_tag.get_text(strip=True).lower()
+                        time_match = re.match(r'(\d{1,2}:\d{2}\s*[ap]m)\s+(until|to)\s+(\d{1,2}:\d{2}\s*[ap]m)', time_text)
+                        if time_match:
+                            start_str = time_match.group(1)
+                            end_str = time_match.group(3)
+                            start_dt = datetime.strptime(f"{day} {month} {year} {start_str}", "%d %B %Y %I:%M%p")
+                            end_dt = datetime.strptime(f"{day} {month} {year} {end_str}", "%d %B %Y %I:%M%p")
+                            if end_dt < start_dt:
+                                end_dt += timedelta(days=1)
+                            closure_times.append((start_dt, end_dt))
+                            _LOGGER.info("Parsed nested <p> + <li> closure: %s to %s", start_dt, end_dt)
+                except Exception as e:
+                    _LOGGER.error("Error in nested <p> + <li> closure logic: %s", e)
+
     _LOGGER.info("Total parsed closures: %d", len(closure_times))
 
     now = datetime.now()
