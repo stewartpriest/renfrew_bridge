@@ -3,6 +3,7 @@ import cloudscraper
 import re
 from datetime import datetime, timedelta
 import logging
+import dateparser
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -54,6 +55,16 @@ def get_bridge_status():
         _LOGGER.debug("Raw line: '%s'", text)
 
         lowered = text.lower()
+        # Standalone date detection: e.g., 'Monday 7th July 2025'
+        standalone_date = dateparser.parse(
+            text,
+            settings={"PREFER_DATES_FROM": "future", "DATE_ORDER": "DMY"}
+        )
+        if standalone_date:
+            current_explicit_date = standalone_date.date()
+            _LOGGER.debug("Set current_explicit_date from standalone line: %s -> %s", text, current_explicit_date)
+            continue
+
 
         if re.search(r'no\s+(further\s+)?closures?\s+(scheduled|planned|expected|currently planned)', lowered) or \
            'no closures currently planned' in lowered or \
@@ -243,6 +254,33 @@ def get_bridge_status():
                             _LOGGER.info("Parsed nested <p> + <li> closure: %s to %s", start_dt, end_dt)
                 except Exception as e:
                     _LOGGER.error("Error in nested <p> + <li> closure logic: %s", e)
+
+        # NEW FORMAT: Handle freetext <p> time ranges like 'From 9.30 to 10:30pm'
+        if p.name == "p" and current_explicit_date:
+            fuzzy_match = re.match(r'from\s+(\d{1,2}(?::\d{2}|\.\d{2})?)\s*(am|pm)?\s*(?:to|until)\s+(\d{1,2}(?::\d{2}|\.\d{2})?\s*[ap]m)', text)
+            if fuzzy_match:
+                try:
+                    start_time_raw = fuzzy_match.group(1).replace('.', ':')
+                    start_ampm = fuzzy_match.group(2)
+                    end_time_str = fuzzy_match.group(3).replace('.', ':')
+                    if not start_ampm:
+                        if 'am' in end_time_str.lower():
+                            start_ampm = 'am'
+                        elif 'pm' in end_time_str.lower():
+                            start_ampm = 'pm'
+                        else:
+                            start_ampm = 'pm'
+                    start_str = f"{start_time_raw}{start_ampm}".lower()
+                    end_str = end_time_str.lower()
+                    date_str = current_explicit_date.strftime("%d %B %Y")
+                    start_dt = datetime.strptime(f"{date_str} {start_str}", "%d %B %Y %I:%M%p" if ':' in start_str else "%d %B %Y %I%p")
+                    end_dt = datetime.strptime(f"{date_str} {end_str}", "%d %B %Y %I:%M%p" if ':' in end_str else "%d %B %Y %I%p")
+                    if end_dt < start_dt:
+                        end_dt += timedelta(days=1)
+                    closure_times.append((start_dt, end_dt))
+                    _LOGGER.info("Parsed fuzzy freetext <p> closure: %s to %s", start_dt, end_dt)
+                except Exception as e:
+                    _LOGGER.error("Error parsing fuzzy freetext <p> format: %s", e)
 
     _LOGGER.info("Total parsed closures: %d", len(closure_times))
 
