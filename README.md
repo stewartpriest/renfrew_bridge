@@ -6,7 +6,7 @@
 [![Forks](https://img.shields.io/github/forks/stewartpriest/renfrew_bridge?style=flat-square)](https://github.com/stewartpriest/renfrew_bridge/network/members)
 [![Last Commit](https://img.shields.io/github/last-commit/stewartpriest/renfrew_bridge?style=flat-square)](https://github.com/stewartpriest/renfrew_bridge/commits/main)
 
-![Logo](https://raw.githubusercontent.com/stewartpriest/renfrew_bridge/main/.github/logo.png)
+<img src="https://github.com/stewartpriest/renfrew_bridge/raw/main/custom_components/renfrew_bridge/www/logo.png" width="200" alt="Renfrew Bridge Logo" />
 
 This Home Assistant integration monitors the operational status of the **Renfrew Bridge**, providing real-time data on:
 
@@ -21,9 +21,10 @@ It’s especially useful for residents and commuters near **Braehead, Renfrew, C
 
 ## 🧰 Features
 
-| Sensor | Description |
+| Entity | Description |
 |--------|-------------|
-| `sensor.renfrew_bridge_status` | Shows if the bridge is currently `open` or `closed` |
+| `binary_sensor.renfrew_bridge` | Shows `on` when the bridge is **open** (for voice assistant compatibility) |
+| `sensor.renfrew_bridge_status` | Raw status from the site (`open`/`closed`) |
 | `sensor.renfrew_bridge_next_closure` | ISO 8601 datetime of the next planned closure |
 | `sensor.renfrew_bridge_next_closure_pretty` | Human-friendly format: `DD/MM/YYYY HH:mm` |
 | `sensor.renfrew_bridge_upcoming_closure_count` | Integer count of future closures (excluding any ongoing one) |
@@ -63,9 +64,9 @@ You can adjust the refresh rate any time via:
 
 ## 🧠 Use Cases
 
+- **Voice Assistants**: "Alexa, is the Renfrew Bridge open?" → responds based on the `binary_sensor`
 - **Automation**: Alert users when a closure is upcoming or ends
 - **Lovelace Dashboards**: Show next and current closures in a readable format
-- **Voice Assistants**: "Hey Google, is the bridge open?"
 - **Travel Planning**: Display how many bridge closures are scheduled ahead
 
 ---

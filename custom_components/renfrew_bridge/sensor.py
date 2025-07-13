@@ -16,8 +16,6 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
 
     entities = [
         RenfrewBridgeStatusSensor("Renfrew Bridge Status", refresh_minutes, entry_id),
-        RenfrewBridgeClosedBinarySensor("Renfrew Bridge Closed", refresh_minutes, entry_id),
-        RenfrewBridgeNextClosureSensor("Renfrew Bridge Next Closure", refresh_minutes, entry_id),
         RenfrewBridgeNextClosurePrettySensor("Renfrew Bridge Next Closure (Pretty)", refresh_minutes, entry_id),
         RenfrewBridgeUpcomingClosureCountSensor("Renfrew Bridge Upcoming Closure Count", refresh_minutes, entry_id),
         RenfrewBridgeCurrentClosureEndsSensor("Renfrew Bridge Current Closure Ends", refresh_minutes, entry_id),
@@ -54,17 +52,6 @@ class TimedUpdateSensor(SensorEntity):
         return "mdi:calendar-clock"
 
 
-class TimedUpdateBinarySensor(BinarySensorEntity):
-    def __init__(self, name, refresh_minutes, entry_id):
-        self._attr_name = name
-        self._attr_is_on = None
-        self._refresh = timedelta(minutes=refresh_minutes)
-        self._last_update = datetime.min
-        self._entry_id = entry_id
-        slug = name.lower().replace(" ", "_").replace("(", "").replace(")", "")
-        self._attr_unique_id = f"{entry_id}_{slug}"
-        self._attr_device_class = "opening"
-
     def should_update(self):
         return datetime.now() - self._last_update >= self._refresh
 
@@ -93,8 +80,6 @@ class RenfrewBridgeStatusSensor(TimedUpdateSensor):
             self._attr_native_value = None
 
 
-class RenfrewBridgeClosedBinarySensor(TimedUpdateBinarySensor):
-    def update(self):
         if not self.should_update():
             return
         try:

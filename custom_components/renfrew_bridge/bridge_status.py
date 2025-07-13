@@ -36,6 +36,9 @@ def get_bridge_status():
 
     planned_closures = True
     closure_times = []
+
+    def already_parsed(start_dt, end_dt):
+        return any(existing_start == start_dt and existing_end == end_dt for existing_start, existing_end in closure_times)
     last_updated_datetime = None
     next_closure = None
     bridge_closed = False
@@ -122,7 +125,8 @@ def get_bridge_status():
                 end_dt = datetime.strptime(f"{day} {month} {year} {end_time_str}", "%d %B %Y %I:%M%p")
                 if end_dt < start_dt:
                     end_dt += timedelta(days=1)
-                closure_times.append((start_dt, end_dt))
+                if not already_parsed(start_dt, end_dt):
+                    closure_times.append((start_dt, end_dt))
                 _LOGGER.info("Parsed Format 1 closure: %s to %s", start_dt, end_dt)
                 continue
             except ValueError as e:
@@ -138,12 +142,15 @@ def get_bridge_status():
                 month = match5.group(3)
                 start_str = match5.group(4)
                 end_str = match5.group(5)
+                start_str = re.sub(r'^00:', '12:', start_str)
+                end_str = re.sub(r'^00:', '12:', end_str)
                 year = datetime.now().year
                 start_dt = datetime.strptime(f"{day} {month} {year} {start_str}", "%d %B %Y %I:%M%p")
                 end_dt = datetime.strptime(f"{day} {month} {year} {end_str}", "%d %B %Y %I:%M%p")
                 if end_dt < start_dt:
                     end_dt += timedelta(days=1)
-                closure_times.append((start_dt, end_dt))
+                if not already_parsed(start_dt, end_dt):
+                    closure_times.append((start_dt, end_dt))
                 _LOGGER.info("Parsed Format 5 closure: %s to %s", start_dt, end_dt)
                 continue
             except ValueError as e:
@@ -160,11 +167,14 @@ def get_bridge_status():
                 year = int(match6.group(4))
                 start_str = match6.group(5).lower()
                 end_str = match6.group(6).lower()
+                start_str = re.sub(r'^00:', '12:', start_str)
+                end_str = re.sub(r'^00:', '12:', end_str)
                 start_dt = datetime.strptime(f"{day} {month} {year} {start_str}", "%d %B %Y %I:%M%p")
                 end_dt = datetime.strptime(f"{day} {month} {year} {end_str}", "%d %B %Y %I:%M%p")
                 if end_dt < start_dt:
                     end_dt += timedelta(days=1)
-                closure_times.append((start_dt, end_dt))
+                if not already_parsed(start_dt, end_dt):
+                    closure_times.append((start_dt, end_dt))
                 _LOGGER.info("Parsed Format 6 closure: %s to %s", start_dt, end_dt)
                 continue
             except Exception as e:
@@ -181,11 +191,14 @@ def get_bridge_status():
                 year = int(match7.group(4))
                 start_str = match7.group(5).lower()
                 end_str = match7.group(6).lower()
+                start_str = re.sub(r'^00:', '12:', start_str)
+                end_str = re.sub(r'^00:', '12:', end_str)
                 start_dt = datetime.strptime(f"{day} {month} {year} {start_str}", "%d %B %Y %I%p" if ':' not in start_str else "%d %B %Y %I:%M%p")
                 end_dt = datetime.strptime(f"{day} {month} {year} {end_str}", "%d %B %Y %I%p" if ':' not in end_str else "%d %B %Y %I:%M%p")
                 if end_dt < start_dt:
                     end_dt += timedelta(days=1)
-                closure_times.append((start_dt, end_dt))
+                if not already_parsed(start_dt, end_dt):
+                    closure_times.append((start_dt, end_dt))
                 _LOGGER.info("Parsed Format 7 closure: %s to %s", start_dt, end_dt)
                 continue
             except Exception as e:
@@ -199,12 +212,15 @@ def get_bridge_status():
                     continue
                 start_str = match3.group(1).lower()
                 end_str = match3.group(2).lower()
+                start_str = re.sub(r'^00:', '12:', start_str)
+                end_str = re.sub(r'^00:', '12:', end_str)
                 date_str = current_explicit_date.strftime("%d %B %Y")
                 start_dt = datetime.strptime(f"{date_str} {start_str}", "%d %B %Y %I:%M%p")
                 end_dt = datetime.strptime(f"{date_str} {end_str}", "%d %B %Y %I:%M%p")
                 if end_dt < start_dt:
                     end_dt += timedelta(days=1)
-                closure_times.append((start_dt, end_dt))
+                if not already_parsed(start_dt, end_dt):
+                    closure_times.append((start_dt, end_dt))
                 _LOGGER.info("Parsed Format 3 closure: %s to %s", start_dt, end_dt)
                 continue
             except Exception as e:
@@ -215,12 +231,15 @@ def get_bridge_status():
             try:
                 start_str = match4.group(1).lower()
                 end_str = match4.group(2).lower()
+                start_str = re.sub(r'^00:', '12:', start_str)
+                end_str = re.sub(r'^00:', '12:', end_str)
                 date_str = current_explicit_date.strftime("%d %B %Y")
                 start_dt = datetime.strptime(f"{date_str} {start_str}", "%d %B %Y %I:%M%p")
                 end_dt = datetime.strptime(f"{date_str} {end_str}", "%d %B %Y %I:%M%p")
                 if end_dt < start_dt:
                     end_dt += timedelta(days=1)
-                closure_times.append((start_dt, end_dt))
+                if not already_parsed(start_dt, end_dt):
+                    closure_times.append((start_dt, end_dt))
                 _LOGGER.info("Parsed Format 4 closure: %s to %s", start_dt, end_dt)
             except Exception as e:
                 _LOGGER.error("Error parsing format 4 time: %s", e)
@@ -250,7 +269,8 @@ def get_bridge_status():
                             end_dt = datetime.strptime(f"{day} {month} {year} {end_str}", "%d %B %Y %I:%M%p")
                             if end_dt < start_dt:
                                 end_dt += timedelta(days=1)
-                            closure_times.append((start_dt, end_dt))
+                            if not already_parsed(start_dt, end_dt):
+                                closure_times.append((start_dt, end_dt))
                             _LOGGER.info("Parsed nested <p> + <li> closure: %s to %s", start_dt, end_dt)
                 except Exception as e:
                     _LOGGER.error("Error in nested <p> + <li> closure logic: %s", e)
@@ -272,12 +292,15 @@ def get_bridge_status():
                             start_ampm = 'pm'
                     start_str = f"{start_time_raw}{start_ampm}".lower()
                     end_str = end_time_str.lower()
+                    start_str = re.sub(r'^00:', '12:', start_str)
+                    end_str = re.sub(r'^00:', '12:', end_str)
                     date_str = current_explicit_date.strftime("%d %B %Y")
                     start_dt = datetime.strptime(f"{date_str} {start_str}", "%d %B %Y %I:%M%p" if ':' in start_str else "%d %B %Y %I%p")
                     end_dt = datetime.strptime(f"{date_str} {end_str}", "%d %B %Y %I:%M%p" if ':' in end_str else "%d %B %Y %I%p")
                     if end_dt < start_dt:
                         end_dt += timedelta(days=1)
-                    closure_times.append((start_dt, end_dt))
+                    if not already_parsed(start_dt, end_dt):
+                        closure_times.append((start_dt, end_dt))
                     _LOGGER.info("Parsed fuzzy freetext <p> closure: %s to %s", start_dt, end_dt)
                 except Exception as e:
                     _LOGGER.error("Error parsing fuzzy freetext <p> format: %s", e)
