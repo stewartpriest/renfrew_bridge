@@ -199,10 +199,27 @@ def get_bridge_status():
                     end_dt += timedelta(days=1)
                 if not already_parsed(start_dt, end_dt):
                     closure_times.append((start_dt, end_dt))
-                _LOGGER.info("Parsed Format 7 closure: %s to %s", start_dt, end_dt)
+                    _LOGGER.info("Parsed Format 7 closure: %s to %s", start_dt, end_dt)
+
+            except Exception as e:
+                _LOGGER.error("Error parsing Format 8 (indented <p>) closure: %s", e)
                 continue
             except Exception as e:
                 _LOGGER.error("Error parsing format 7 time: %s", e)
+        # match8: New format - <p>Date</p> followed by <p style="margin-left: 40px">From TIME to TIME</p>
+        if p.name == "p" and 'style' in p.attrs and 'margin-left' in p.attrs['style'].lower():
+            match8 = re.search(r'from\s+(\d{1,2}:\d{2})\s*(am|pm)?\s*(?:to|until)\s+(\d{1,2}:\d{2})\s*(am|pm)', text, re.I)
+            if match8 and current_explicit_date:
+                try:
+                    start_hour = match8.group(1)
+                    start_ampm = match8.group(2) or match8.group(4)
+                    end_hour = match8.group(3)
+                    end_ampm = match8.group(4)
+                except Exception as e:
+                    _LOGGER.error("Error parsing Format 8 (indented <p>) closure: %s", e)
+
+                except Exception as e:
+                    _LOGGER.error("Error parsing Format 8 (indented <p>) closure: %s", e)
 
         match3 = re.search(r'(?:from\s*)?(\d{1,2}:\d{2}\s*[ap]m)\s*(?:until|to)\s*(\d{1,2}:\d{2}\s*[ap]m)', text, re.I)
         if match3:
