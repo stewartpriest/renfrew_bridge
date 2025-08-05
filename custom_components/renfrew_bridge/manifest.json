@@ -1,11 +1,11 @@
 {
+  "domain": "renfrew_bridge",
+  "name": "Renfrew Bridge Status",
   "codeowners": ["@stewartpriest"],
   "config_flow": true,
   "dependencies": [],
   "documentation": "https://github.com/stewartpriest/renfrew_bridge",
-  "domain": "renfrew_bridge",
   "iot_class": "cloud_polling",
-  "name": "Renfrew Bridge Status",
   "requirements": ["beautifulsoup4", "requests", "cloudscraper==1.2.71"],
   "version": "1.1.0"
 }
