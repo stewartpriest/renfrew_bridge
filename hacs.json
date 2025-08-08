@@ -1,7 +1,6 @@
 {
   "name": "Renfrew Bridge Status",
   "homeassistant": "2024.5.0",
-  "render_readme": true,
   "content_in_root": false,
-  "filename": "custom_components/renfrew_bridge/__init__.py"
+  "country": ["GB"]
 }
