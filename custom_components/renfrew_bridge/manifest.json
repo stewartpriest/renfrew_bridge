@@ -6,6 +6,7 @@
   "dependencies": [],
   "documentation": "https://github.com/stewartpriest/renfrew_bridge",
   "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/stewartpriest/renfrew_bridge/issues",
   "requirements": ["beautifulsoup4", "requests", "cloudscraper==1.2.71"],
   "version": "1.1.0"
 }
