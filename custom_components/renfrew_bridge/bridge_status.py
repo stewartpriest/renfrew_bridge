@@ -18,6 +18,8 @@ def get_bridge_status():
         "Connection": "keep-alive",
         "Upgrade-Insecure-Requests": "1"
     }
+
+    _LOGGER.debug("Fetching Renfrew Bridge page from %s", url)
     scraper = cloudscraper.create_scraper()
     response = scraper.get(url, headers=headers)
     _LOGGER.debug("RENFREW_RAW_HTML_DUMP:\n%s", response.content.decode("utf-8", errors="replace"))
