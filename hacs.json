@@ -1,10 +1,10 @@
 {
   "name": "Renfrew Bridge Status",
-  "homeassistant": "2024.5.0",
   "content_in_root": false,
   "country": ["GB"],
+  "homeassistant": "2024.6.0",
+  "render_readme": true,
   "zip_release": true,
   "filename": "renfrew_bridge.zip",
-  "render_readme": true,
   "hide_default_branch": true
 }
