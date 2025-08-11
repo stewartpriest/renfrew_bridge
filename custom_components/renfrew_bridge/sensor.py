@@ -12,7 +12,8 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
 
     entities = [
         RenfrewBridgeStatusSensor(coordinator, "Renfrew Bridge Status"),
-        RenfrewBridgeNextClosurePrettySensor(coordinator, "Renfrew Bridge Next Closure (Pretty)"),
+        RenfrewBridgeNextClosureStartsPrettySensor(coordinator, "Renfrew Bridge Next Closure Starts (Pretty)"),
+        RenfrewBridgeNextClosureEndsPrettySensor(coordinator, "Renfrew Bridge Next Closure Ends (Pretty)"),
         RenfrewBridgeUpcomingClosureCountSensor(coordinator, "Renfrew Bridge Upcoming Closure Count"),
         RenfrewBridgeCurrentClosureEndsSensor(coordinator, "Renfrew Bridge Current Closure Ends"),
         RenfrewBridgeCurrentClosureEndsPrettySensor(coordinator, "Renfrew Bridge Current Closure Ends Pretty")
@@ -56,7 +57,7 @@ class RenfrewBridgeStatusSensor(RenfrewBridgeBaseSensor):
         """Return the icon."""
         return "mdi:bridge"
 
-class RenfrewBridgeNextClosurePrettySensor(RenfrewBridgeBaseSensor):
+class RenfrewBridgeNextClosureStartsPrettySensor(RenfrewBridgeBaseSensor):
     """Sensor for the next closure in a pretty format."""
     @property
     def native_value(self):
@@ -66,6 +67,20 @@ class RenfrewBridgeNextClosurePrettySensor(RenfrewBridgeBaseSensor):
             return None
         try:
             dt = datetime.fromisoformat(data["next_closure_start"])
+            return dt.strftime("%d/%m/%Y %H:%M")
+        except ValueError:
+            return None
+
+class RenfrewBridgeNextClosureEndsPrettySensor(RenfrewBridgeBaseSensor):
+    """Sensor for the next closure end in a pretty format."""
+    @property
+    def native_value(self):
+        """Return the state of the sensor."""
+        data = self.coordinator.data
+        if not data or not data.get("next_closure_end"):
+            return None
+        try:
+            dt = datetime.fromisoformat(data["next_closure_end"])
             return dt.strftime("%d/%m/%Y %H:%M")
         except ValueError:
             return None
