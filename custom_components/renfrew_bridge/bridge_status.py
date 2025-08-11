@@ -202,12 +202,34 @@ def get_bridge_status():
                 if not already_parsed(start_dt, end_dt):
                     closure_times.append((start_dt, end_dt))
                     _LOGGER.info("Parsed Format 7 closure: %s to %s", start_dt, end_dt)
-
-            except Exception as e:
-                _LOGGER.error("Error parsing Format 8 (indented <p>) closure: %s", e)
                 continue
             except Exception as e:
                 _LOGGER.error("Error parsing format 7 time: %s", e)
+        # match9: Handle 'HH:MM to HH:MM am/pm'
+        match9 = re.search(r'(\d{1,2}:\d{2})\s+to\s+(\d{1,2}:\d{2})\s*([ap]m)', text, re.I)
+        if match9 and current_explicit_date:
+            try:
+                start_str = match9.group(1).lower()
+                end_str = match9.group(2).lower()
+                ampm = match9.group(3).lower()
+
+                full_start_str = f"{start_str}{ampm}"
+                full_end_str = f"{end_str}{ampm}"
+                
+                date_str = current_explicit_date.strftime("%d %B %Y")
+                
+                start_dt = datetime.strptime(f"{date_str} {full_start_str}", "%d %B %Y %I:%M%p")
+                end_dt = datetime.strptime(f"{date_str} {full_end_str}", "%d %B %Y %I:%M%p")
+                
+                if end_dt < start_dt:
+                    end_dt += timedelta(days=1)
+                
+                if not already_parsed(start_dt, end_dt):
+                    closure_times.append((start_dt, end_dt))
+                _LOGGER.info("Parsed new Format closure: %s to %s", start_dt, end_dt)
+                continue
+            except Exception as e:
+                _LOGGER.error("Error parsing new format time: %s", e)
         # match8: New format - <p>Date</p> followed by <p style="margin-left: 40px">From TIME to TIME</p>
         if p.name == "p" and 'style' in p.attrs and 'margin-left' in p.attrs['style'].lower():
             match8 = re.search(r'from\s+(\d{1,2}:\d{2})\s*(am|pm)?\s*(?:to|until)\s+(\d{1,2}:\d{2})\s*(am|pm)', text, re.I)
