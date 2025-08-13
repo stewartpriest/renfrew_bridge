@@ -43,6 +43,7 @@ def get_bridge_status():
         return any(existing_start == start_dt and existing_end == end_dt for existing_start, existing_end in closure_times)
     last_updated_datetime = None
     next_closure = None
+    current_closure_end_time = None
     bridge_closed = False
     current_explicit_date = None
 
@@ -72,8 +73,8 @@ def get_bridge_status():
 
 
         if re.search(r'no\s+(further\s+)?closures?\s+(scheduled|planned|expected|currently planned)', lowered) or \
-           'no closures currently planned' in lowered or \
-           'no road closures planned' in lowered:
+            'no closures currently planned' in lowered or \
+            'no road closures planned' in lowered:
             planned_closures = False
             _LOGGER.info("Detected phrasing indicating no planned closures: '%s'", text)
 
@@ -307,7 +308,7 @@ def get_bridge_status():
                             start_str = time_match.group(1)
                             end_str = time_match.group(3)
                             start_dt = datetime.strptime(f"{day} {month} {year} {start_str}", "%d %B %Y %I:%M%p")
-                            end_dt = datetime.strptime(f"{day} {month} {year} {end_str}", "%d %B %Y %I:%M%p")
+                            end_dt = datetime.strptime(f"{day} {month} {year} %I:%M%p".format(day=day, month=month, year=year, end_str=end_str))
                             if end_dt < start_dt:
                                 end_dt += timedelta(days=1)
                             if not already_parsed(start_dt, end_dt):
@@ -349,24 +350,36 @@ def get_bridge_status():
     _LOGGER.info("Total parsed closures: %d", len(closure_times))
 
     now = datetime.now()
-    upcoming = [c for c in closure_times if c[1] > now]
+    next_closure = None
+    current_closure_end_time = None
+    
+    # Check for any ongoing closure to set bridge_closed state and get the end time
+    for start, end in closure_times:
+        if start <= now <= end:
+            bridge_closed = True
+            current_closure_end_time = end
+            break
+            
+    # Find the next future closure, separate from the current state
+    upcoming = [c for c in closure_times if c[0] > now]
     if upcoming:
         next_closure = min(upcoming, key=lambda c: c[0])
-        bridge_closed = next_closure[0] <= now <= next_closure[1]
-    elif not planned_closures:
+    
+    _LOGGER.debug("is_currently_closed: %s", bridge_closed)
+    _LOGGER.debug("current_closure_end_time: %s", current_closure_end_time)
+    _LOGGER.debug("next_closure: %s", next_closure)
+    
+    if not planned_closures and not bridge_closed:
         _LOGGER.info("Confirmed: No closures currently scheduled.")
-        bridge_closed = False
-    else:
-        _LOGGER.info("No upcoming closures found after filtering by current time.")
-        bridge_closed = False
-
-    if not closure_times and planned_closures:
+        
+    elif not closure_times and planned_closures:
         _LOGGER.warning("No closure times were parsed from the page.")
-
+        
     result = {
         'bridge_closed': bridge_closed,
         'next_closure_start': next_closure[0].isoformat() if next_closure else None,
         'next_closure_end': next_closure[1].isoformat() if next_closure else None,
+        'current_closure_end': current_closure_end_time.isoformat() if current_closure_end_time else None,
         'closure_times': closure_times
     }
 

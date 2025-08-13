@@ -107,9 +107,9 @@ class RenfrewBridgeCurrentClosureEndsSensor(RenfrewBridgeBaseSensor):
     def native_value(self):
         """Return the state of the sensor."""
         data = self.coordinator.data
-        if not data or not data.get("bridge_closed"):
+        if not data or not data.get("current_closure_end"):
             return None
-        return data.get("next_closure_end")
+        return data.get("current_closure_end")
 
 class RenfrewBridgeCurrentClosureEndsPrettySensor(RenfrewBridgeBaseSensor):
     """Sensor for when the current closure ends in a pretty format."""
@@ -117,10 +117,10 @@ class RenfrewBridgeCurrentClosureEndsPrettySensor(RenfrewBridgeBaseSensor):
     def native_value(self):
         """Return the state of the sensor."""
         data = self.coordinator.data
-        if not data or not data.get("bridge_closed") or not data.get("next_closure_end"):
+        if not data or not data.get("current_closure_end"):
             return None
         try:
-            end_time_str = data["next_closure_end"]
+            end_time_str = data["current_closure_end"]
             end_dt = datetime.fromisoformat(end_time_str)
             return end_dt.strftime("%d/%m/%Y %H:%M")
         except ValueError:
