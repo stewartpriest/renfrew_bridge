@@ -16,7 +16,8 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
         RenfrewBridgeNextClosureEndsPrettySensor(coordinator, "Renfrew Bridge Next Closure Ends (Pretty)"),
         RenfrewBridgeUpcomingClosureCountSensor(coordinator, "Renfrew Bridge Upcoming Closure Count"),
         RenfrewBridgeCurrentClosureEndsSensor(coordinator, "Renfrew Bridge Current Closure Ends"),
-        RenfrewBridgeCurrentClosureEndsPrettySensor(coordinator, "Renfrew Bridge Current Closure Ends Pretty")
+        RenfrewBridgeCurrentClosureEndsPrettySensor(coordinator, "Renfrew Bridge Current Closure Ends Pretty"),
+        RenfrewBridgeNextClosureStartsSensor(coordinator, "Renfrew Bridge Next Closure Starts")
     ]
     async_add_entities(entities)
 
@@ -125,3 +126,13 @@ class RenfrewBridgeCurrentClosureEndsPrettySensor(RenfrewBridgeBaseSensor):
             return end_dt.strftime("%d/%m/%Y %H:%M")
         except ValueError:
             return None
+
+class RenfrewBridgeNextClosureStartsSensor(RenfrewBridgeBaseSensor):
+    """Sensor for the next closure start in ISO format."""
+    @property
+    def native_value(self):
+        """Return the state of the sensor."""
+        data = self.coordinator.data
+        if not data or not data.get("next_closure_start"):
+            return None
+        return data.get("next_closure_start")
