@@ -14,24 +14,21 @@ jobs:
         uses: actions/checkout@v2
 
       - name: Get version
-        id: version
-        # This action extracts the version number from the release tag.
-        # For a tag like 'v2025.08.09', it will output '2025.08.09'.
-        uses: home-assistant/actions/helpers/version@master
-
+        id: get_version
+        run: |
+          TAG_NAME=$(echo ${{ github.ref }} | sed 's/refs\/tags\///')
+          VERSION=$(echo $TAG_NAME | sed 's/^v//')
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        
       - name: Patch manifest and create zip
         run: |
-          # sed command finds a placeholder in the manifest.json
-          # and replaces it with the version number from the release tag.
-          sed -i 's/v0.0.0/${{ steps.version.outputs.version }}/' custom_components/renfrew_bridge/manifest.json
-          
-          # This creates a zip file of your integration's directory.
-          # The folder structure inside the zip will be correct for HACS.
+          sed -i 's/"0.0.0"/"${{ env.VERSION }}"/' custom_components/renfrew_bridge/manifest.json
           cd custom_components/renfrew_bridge/
           zip -r ../../renfrew_bridge.zip ./* -x '.*'
 
       - name: Upload Release Asset
-        # This action uploads the created zip file to the release.
         uses: JasonEtco/upload-to-release@master
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
