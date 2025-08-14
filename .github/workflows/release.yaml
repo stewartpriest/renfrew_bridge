@@ -19,7 +19,7 @@ jobs:
 
       - name: Patch manifest and create zip
         run: |
-          sed -i 's/0.0.0/${{ steps.version.outputs.version }}/' custom_components/renfrew_bridge/manifest.json
+          sed -i 's/"version": ".*"/"version": "${{ steps.version.outputs.version }}"/' custom_components/renfrew_bridge/manifest.json
           cd custom_components/renfrew_bridge/
           zip -r ../../renfrew_bridge.zip ./* -x '.*'
 
