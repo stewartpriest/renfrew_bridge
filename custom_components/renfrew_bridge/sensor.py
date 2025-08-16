@@ -109,11 +109,13 @@ class RenfrewBridgeUpcomingClosureCountSensor(RenfrewBridgeBaseSensor):
         attributes = {}
         if data and data.get("closure_times"):
             upcoming_closures = []
+            now = datetime.now()
             for start_time, end_time in data["closure_times"]:
-                upcoming_closures.append({
-                    "start": start_time.isoformat(),
-                    "end": end_time.isoformat()
-                })
+                if start_time > now:
+                    upcoming_closures.append({
+                        "start": start_time.isoformat(),
+                        "end": end_time.isoformat()
+                    })
             attributes["upcoming_closures"] = upcoming_closures
         return attributes
 
