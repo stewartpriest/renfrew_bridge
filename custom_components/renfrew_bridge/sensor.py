@@ -102,6 +102,21 @@ class RenfrewBridgeUpcomingClosureCountSensor(RenfrewBridgeBaseSensor):
         count = len([c for c in data["closure_times"] if c[0] > now])
         return count
 
+    @property
+    def extra_state_attributes(self):
+        """Return the state attributes."""
+        data = self.coordinator.data
+        attributes = {}
+        if data and data.get("closure_times"):
+            upcoming_closures = []
+            for start_time, end_time in data["closure_times"]:
+                upcoming_closures.append({
+                    "start": start_time.isoformat(),
+                    "end": end_time.isoformat()
+                })
+            attributes["upcoming_closures"] = upcoming_closures
+        return attributes
+
 class RenfrewBridgeCurrentClosureEndsSensor(RenfrewBridgeBaseSensor):
     """Sensor for when the current closure ends."""
     @property
