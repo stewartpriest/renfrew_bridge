@@ -1,6 +1,7 @@
+import logging
+import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.core import callback
-import voluptuous as vol
 
 from .const import (
     DOMAIN,
@@ -9,13 +10,17 @@ from .const import (
 )
 from .options_flow import RenfrewBridgeOptionsFlowHandler
 
+_LOGGER = logging.getLogger(__name__)
+
 class RenfrewBridgeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Renfrew Bridge."""
 
     VERSION = 1
 
     async def async_step_user(self, user_input=None):
+        """Handle the initial step."""
         if user_input is not None:
+            _LOGGER.debug("User input received: %s", user_input)
             return self.async_create_entry(
                 title="Renfrew Bridge",
                 data={
@@ -36,4 +41,5 @@ class RenfrewBridgeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     @staticmethod
     @callback
     def async_get_options_flow(config_entry):
+        """Return the options flow handler."""
         return RenfrewBridgeOptionsFlowHandler(config_entry)

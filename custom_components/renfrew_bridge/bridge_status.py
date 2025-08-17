@@ -7,6 +7,16 @@ import dateparser
 
 _LOGGER = logging.getLogger(__name__)
 
+IGNORED_PATTERNS = [
+    r"no closures currently planned",
+    r"any further closures.*information is available",
+    r"\*\*note:.*\*\*",
+    r"please check this page.*journey",
+]
+
+def is_ignorable(text: str) -> bool:
+    return any(re.search(pat, text, re.IGNORECASE) for pat in IGNORED_PATTERNS)
+
 def get_bridge_status(options=None):
     _LOGGER.info("Renfrew Bridge: get_bridge_status called")
 
@@ -30,7 +40,8 @@ def get_bridge_status(options=None):
             'next_closure_start': None,
             'next_closure_end': None,
             'current_closure_end': None,
-            'closure_times': []
+            'closure_times': [],
+            'ignored_lines': []
         }
 
     soup = BeautifulSoup(response.content, 'html.parser')
@@ -42,11 +53,13 @@ def get_bridge_status(options=None):
             'next_closure_start': None,
             'next_closure_end': None,
             'current_closure_end': None,
-            'closure_times': []
+            'closure_times': [],
+            'ignored_lines': []
         }
 
     paragraphs = newsflash_div.find_all(['p', 'li', 'div'])
     closure_times = []
+    ignored_lines = []
     current_explicit_date = None
 
     def already_parsed(start_dt, end_dt):
@@ -92,20 +105,23 @@ def get_bridge_status(options=None):
         text = text.replace("\xa0", " ").replace("  ", " ").strip().lower()
 
         # Normalize time delimiters and suffixes
-        text = text.replace(";", ":")  # fix semicolon
-        text = re.sub(r'(\d{1,2})\.(\d{2})', r'\1:\2', text)  # fix dot-based times
-        text = re.sub(r'(\d{1,2}:\d{2})([ap]m)', r'\1 \2', text)  # ensure space before am/pm
+        text = text.replace(";", ":")
+        text = re.sub(r'(\d{1,2})\.(\d{2})', r'\1:\2', text)
+        text = re.sub(r'(\d{1,2}:\d{2})([ap]m)', r'\1 \2', text)
         text = text.replace("a.m.", "am").replace("p.m.", "pm")
-        text = text.replace("–", "-").replace("—", "-")  # normalize dashes
+        text = text.replace("–", "-").replace("—", "-")
 
         _LOGGER.debug("Raw line: '%s'", text)
 
-        # Skip metadata lines
+        if is_ignorable(text):
+            _LOGGER.debug("Ignored line: '%s'", text)
+            ignored_lines.append(text)
+            continue
+
         if re.search(r'last\s+updated', text, re.IGNORECASE):
             _LOGGER.debug("Skipping metadata line: %s", text)
             continue
 
-        # Strip weekday prefix if present
         if re.match(r'^(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s', text, re.IGNORECASE):
             text = re.sub(r'^(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s+', '', text, flags=re.IGNORECASE)
 
@@ -128,14 +144,15 @@ def get_bridge_status(options=None):
                 start_dt, end_dt = parse_time_range(text, current_explicit_date)
                 if start_dt and end_dt:
                     duration = (end_dt - start_dt).total_seconds()
-                    if duration > 0 and duration < 86400:  # less than 24 hours
+                    if duration > 0 and duration < 86400:
                         if not already_parsed(start_dt, end_dt):
                             closure_times.append((start_dt, end_dt))
                             _LOGGER.info("Parsed closure: %s to %s", start_dt, end_dt)
                     else:
                         _LOGGER.warning("Discarded suspicious closure range: %s to %s", start_dt, end_dt)
                 else:
-                    _LOGGER.warning("Could not parse time range from line: '%s'", text)
+                    _LOGGER.debug("Could not parse time range from line: '%s'", text)
+                    ignored_lines.append(text)
             except Exception as e:
                 _LOGGER.error("Error parsing time range: %s", e)
 
@@ -161,7 +178,8 @@ def get_bridge_status(options=None):
         'next_closure_start': next_closure[0].isoformat() if next_closure else None,
         'next_closure_end': next_closure[1].isoformat() if next_closure else None,
         'current_closure_end': current_closure_end_time.isoformat() if current_closure_end_time else None,
-        'closure_times': closure_times
+        'closure_times': closure_times,
+        'ignored_lines': ignored_lines
     }
 
     _LOGGER.info("Renfrew Bridge: returning %s", result)
