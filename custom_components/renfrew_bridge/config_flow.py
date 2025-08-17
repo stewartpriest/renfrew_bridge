@@ -1,30 +1,39 @@
-import voluptuous as vol
 from homeassistant import config_entries
+from homeassistant.core import callback
+import voluptuous as vol
 
-from .const import DOMAIN, CONF_REFRESH_MINUTES, DEFAULT_REFRESH_MINUTES
+from .const import (
+    DOMAIN,
+    CONF_REFRESH_MINUTES,
+    DEFAULT_REFRESH_MINUTES,
+)
+from .options_flow import RenfrewBridgeOptionsFlowHandler
 
 class RenfrewBridgeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Renfrew Bridge config flow."""
+    """Handle a config flow for Renfrew Bridge."""
 
     VERSION = 1
 
     async def async_step_user(self, user_input=None):
-        """Handle the initial setup step."""
         if user_input is not None:
             return self.async_create_entry(
-                title="Renfrew Bridge", 
-                data={CONF_REFRESH_MINUTES: user_input[CONF_REFRESH_MINUTES]}
+                title="Renfrew Bridge",
+                data={
+                    CONF_REFRESH_MINUTES: user_input[CONF_REFRESH_MINUTES]
+                }
             )
 
-        data_schema = vol.Schema({
-            vol.Required(
-                CONF_REFRESH_MINUTES,
-                default=DEFAULT_REFRESH_MINUTES
-            ): vol.All(vol.Coerce(int), vol.Range(min=0, max=60))
-        })
-        
         return self.async_show_form(
-            step_id="user", 
-            data_schema=data_schema, 
-            errors={}
+            step_id="user",
+            data_schema=vol.Schema({
+                vol.Required(
+                    CONF_REFRESH_MINUTES,
+                    default=DEFAULT_REFRESH_MINUTES
+                ): vol.All(vol.Coerce(int), vol.Range(min=0, max=60))
+            })
         )
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry):
+        return RenfrewBridgeOptionsFlowHandler(config_entry)

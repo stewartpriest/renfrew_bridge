@@ -1,23 +1,30 @@
-import voluptuous as vol
 from homeassistant import config_entries
-from homeassistant.helpers import config_validation as cv
+from homeassistant.config_entries import OptionsFlowWithConfigEntry
+import voluptuous as vol
 
-from .const import CONF_REFRESH_MINUTES, DEFAULT_REFRESH_MINUTES
+from .const import (
+    CONF_REFRESH_MINUTES,
+    DEFAULT_REFRESH_MINUTES,
+)
 
-class RenfrewBridgeOptionsFlowHandler(config_entries.OptionsFlow):
+class RenfrewBridgeOptionsFlowHandler(OptionsFlowWithConfigEntry):
+    """Handle Renfrew Bridge options."""
 
     def __init__(self, config_entry):
-        pass
+        super().__init__(config_entry)
 
     async def async_step_init(self, user_input=None):
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)
 
+        options = self.config_entry.options
+        refresh = options.get(CONF_REFRESH_MINUTES, self.config_entry.data.get(CONF_REFRESH_MINUTES, DEFAULT_REFRESH_MINUTES))
+
         options_schema = vol.Schema({
-            vol.Required(
-                CONF_REFRESH_MINUTES,
-                default=self.config_entry.options.get(CONF_REFRESH_MINUTES, DEFAULT_REFRESH_MINUTES)
-            ): vol.All(vol.Coerce(int), vol.Range(min=0, max=60))
+            vol.Required(CONF_REFRESH_MINUTES, default=refresh): vol.All(vol.Coerce(int), vol.Range(min=0, max=60))
         })
 
-        return self.async_show_form(step_id="init", data_schema=options_schema)
+        return self.async_show_form(
+            step_id="init",
+            data_schema=options_schema
+        )

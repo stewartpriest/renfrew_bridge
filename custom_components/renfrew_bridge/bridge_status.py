@@ -7,7 +7,7 @@ import dateparser
 
 _LOGGER = logging.getLogger(__name__)
 
-def get_bridge_status():
+def get_bridge_status(options=None):
     _LOGGER.info("Renfrew Bridge: get_bridge_status called")
 
     url = 'https://www.renfrewshire.gov.uk/renfrew-bridge'
@@ -19,362 +19,143 @@ def get_bridge_status():
         "Upgrade-Insecure-Requests": "1"
     }
 
-    _LOGGER.debug("Fetching Renfrew Bridge page from %s", url)
     scraper = cloudscraper.create_scraper()
-    response = scraper.get(url, headers=headers)
-    _LOGGER.debug("RENFREW_RAW_HTML_DUMP:\n%s", response.content.decode("utf-8", errors="replace"))
+    try:
+        response = scraper.get(url, headers=headers)
+        response.raise_for_status()
+    except Exception as e:
+        _LOGGER.error("Failed to fetch page from %s: %s", url, e)
+        return {
+            'bridge_closed': False,
+            'next_closure_start': None,
+            'next_closure_end': None,
+            'current_closure_end': None,
+            'closure_times': []
+        }
 
     soup = BeautifulSoup(response.content, 'html.parser')
-
-    newsflash_div = soup.find('div', class_='newsflash__padding')
+    newsflash_div = soup.find('div', class_='newsflash__padding') or soup.find('div', class_='textblock')
     if not newsflash_div:
-        _LOGGER.warning("Could not find div with class 'newsflash__padding'. Page structure may have changed.")
-        newsflash_div = soup.find('div', class_='textblock')
-        if newsflash_div:
-            _LOGGER.info("Falling back to 'textblock' div for parsing.")
-            _LOGGER.debug("textblock_div contents:\n%s", newsflash_div.prettify())
-        else:
-            _LOGGER.warning("Could not find fallback 'textblock' div either. No content to parse.")
+        _LOGGER.warning("Could not find expected content container. Page structure may have changed.")
+        return {
+            'bridge_closed': False,
+            'next_closure_start': None,
+            'next_closure_end': None,
+            'current_closure_end': None,
+            'closure_times': []
+        }
 
-    planned_closures = True
+    paragraphs = newsflash_div.find_all(['p', 'li', 'div'])
     closure_times = []
+    current_explicit_date = None
 
     def already_parsed(start_dt, end_dt):
         return any(existing_start == start_dt and existing_end == end_dt for existing_start, existing_end in closure_times)
-    last_updated_datetime = None
-    next_closure = None
-    current_closure_end_time = None
-    bridge_closed = False
-    current_explicit_date = None
 
-    if newsflash_div:
-        _LOGGER.debug("newsflash_div contents:\n%s", newsflash_div.prettify())
-        paragraphs = newsflash_div.find_all(['p', 'li', 'div'])
-    else:
-        paragraphs = []
+    def parse_time_range(text, date_context):
+        pattern = re.compile(
+            r'(?:from\s+)?'
+            r'(\d{1,2}(?::\d{2})?)\s*(am|pm)?'
+            r'\s*(?:to|until|-)\s*'
+            r'(\d{1,2}(?::\d{2})?)\s*(am|pm)?',
+            re.IGNORECASE
+        )
+
+        match = pattern.search(text)
+        if not match:
+            fallback = re.findall(r'(\d{1,2}(?::\d{2})?)\s*(am|pm)?', text, re.IGNORECASE)
+            if len(fallback) >= 2:
+                start_raw, start_ampm = fallback[0]
+                end_raw, end_ampm = fallback[1]
+            else:
+                return None, None
+        else:
+            start_raw, start_ampm, end_raw, end_ampm = match.groups()
+
+        def parse_time(t_str, ampm, context_date):
+            if len(t_str) == 4 and ':' not in t_str:
+                t_str = f"{t_str[:2]}:{t_str[2:]}"
+            time_str = f"{t_str} {ampm}" if ampm else t_str
+            return dateparser.parse(time_str, settings={'RELATIVE_BASE': context_date})
+
+        base_date = datetime.combine(date_context, datetime.min.time())
+        start_dt = parse_time(start_raw, start_ampm, base_date)
+        end_dt = parse_time(end_raw, end_ampm, base_date)
+
+        if start_dt and end_dt and end_dt < start_dt:
+            end_dt += timedelta(days=1)
+
+        return start_dt, end_dt
 
     for p in paragraphs:
         text = p.get_text(separator=" ", strip=True)
-        text = text.replace("\xa0", " ").replace("  ", " ").strip()
-        text = text.replace("a.m.", "am").replace("p.m.", "pm").replace(".", ":").lower()
-        text = re.sub(r'(\d{1,2})\.(\d{2})\s*([ap]m)', r'\1:\2\3', text)
+        text = text.replace("\xa0", " ").replace("  ", " ").strip().lower()
+
+        # Normalize time delimiters and suffixes
+        text = text.replace(";", ":")  # fix semicolon
+        text = re.sub(r'(\d{1,2})\.(\d{2})', r'\1:\2', text)  # fix dot-based times
+        text = re.sub(r'(\d{1,2}:\d{2})([ap]m)', r'\1 \2', text)  # ensure space before am/pm
+        text = text.replace("a.m.", "am").replace("p.m.", "pm")
+        text = text.replace("–", "-").replace("—", "-")  # normalize dashes
+
         _LOGGER.debug("Raw line: '%s'", text)
 
-        lowered = text.lower()
-        # Standalone date detection: e.g., 'Monday 7th July 2025'
-        standalone_date = dateparser.parse(
-            text,
-            settings={"PREFER_DATES_FROM": "future", "DATE_ORDER": "DMY"}
-        )
-        if standalone_date:
-            current_explicit_date = standalone_date.date()
-            _LOGGER.debug("Set current_explicit_date from standalone line: %s -> %s", text, current_explicit_date)
+        # Skip metadata lines
+        if re.search(r'last\s+updated', text, re.IGNORECASE):
+            _LOGGER.debug("Skipping metadata line: %s", text)
             continue
 
+        # Strip weekday prefix if present
+        if re.match(r'^(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s', text, re.IGNORECASE):
+            text = re.sub(r'^(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s+', '', text, flags=re.IGNORECASE)
 
-        if re.search(r'no\s+(further\s+)?closures?\s+(scheduled|planned|expected|currently planned)', lowered) or \
-            'no closures currently planned' in lowered or \
-            'no road closures planned' in lowered:
-            planned_closures = False
-            _LOGGER.info("Detected phrasing indicating no planned closures: '%s'", text)
-
-        elif re.search(r'any further closures.*(added|announced|published)', lowered):
-            planned_closures = True
-            _LOGGER.info("Detected phrasing suggesting future closures may still occur: '%s'", text)
-
-        elif "last updated" in lowered:
-            match = re.search(r'last updated\s*[-\u2013]?\s*(.+)', text, flags=re.I)
-            if match:
-                cleaned = match.group(1).strip()
-                cleaned = re.sub(r'(?i)(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s*', '', cleaned)
-                cleaned = re.sub(r'(\d+)(st|nd|rd|th)', r'\1', cleaned)
-                cleaned = re.sub(r'[^\w\s:apm]', '', cleaned, flags=re.I)
-                cleaned = cleaned.replace(" at ", " ")
-                try:
-                    last_updated_datetime = datetime.strptime(cleaned, "%d %B %Y %H:%M")
-                    _LOGGER.debug("Parsed last updated: %s", last_updated_datetime)
-                except ValueError as e:
-                    _LOGGER.warning("Failed to parse last updated line: %s", e)
-
-        date_match = re.search(
-            r'(?i)(monday|tuesday|wednesday|thursday|friday|saturday|sunday)?\s*([a-zA-Z]+)\s+(\d{1,2})(st|nd|rd|th)?\s+(\d{4})',
-            text.strip().rstrip(":")
+        standalone_date = dateparser.parse(
+            text,
+            settings={
+                "PREFER_DAY_OF_MONTH": "first",
+                "PREFER_DATES_FROM": "past",
+                "DATE_ORDER": "DMY"
+            }
         )
-        if date_match:
-            if 'no closures' in lowered or 'no closure' in lowered:
-                _LOGGER.debug("Skipping date with 'no closures': %s", text)
-                continue
-            try:
-                month = date_match.group(2)
-                day = int(date_match.group(3))
-                year = int(date_match.group(5))
-                current_explicit_date = datetime.strptime(f"{day} {month} {year}", "%d %B %Y")
-                _LOGGER.debug("Set current_explicit_date to: %s", current_explicit_date)
-            except ValueError as e:
-                _LOGGER.warning("Failed to parse date: %s", e)
 
-        match1 = re.search(
-            r'(?i)(monday|tuesday|wednesday|thursday|friday|saturday|sunday)?(\d{1,2})(st|nd|rd|th)?\s+([a-zA-Z]+)\s*[-–]?\s*(\d{1,2}:\d{2}\s*[ap]m)\s*(?:until|to)\s*(\d{1,2}:\d{2}\s*[ap]m)',
-            text
-        )
-        if match1:
-            try:
-                day = int(match1.group(2))
-                month = match1.group(4)
-                start_time_str = match1.group(5)
-                end_time_str = match1.group(6)
-                year = datetime.now().year
-                start_dt = datetime.strptime(f"{day} {month} {year} {start_time_str}", "%d %B %Y %I:%M%p")
-                end_dt = datetime.strptime(f"{day} {month} {year} {end_time_str}", "%d %B %Y %I:%M%p")
-                if end_dt < start_dt:
-                    end_dt += timedelta(days=1)
-                if not already_parsed(start_dt, end_dt):
-                    closure_times.append((start_dt, end_dt))
-                _LOGGER.info("Parsed Format 1 closure: %s to %s", start_dt, end_dt)
-                continue
-            except ValueError as e:
-                _LOGGER.error("Error parsing format 1 closure time: %s", e)
+        if standalone_date:
+            current_explicit_date = standalone_date.date()
+            _LOGGER.debug("Set current_explicit_date: %s", current_explicit_date)
+            continue
 
-        match5 = re.search(
-            r'(?i)(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s+(\d{1,2})\s+([a-zA-Z]+)\s+(?:from\s*)?(\d{1,2}:\d{2}\s*[ap]m)\s*(?:until|to)\s*(\d{1,2}:\d{2}\s*[ap]m)',
-            text
-        )
-        if match5:
+        if current_explicit_date:
             try:
-                day = int(match5.group(2))
-                month = match5.group(3)
-                start_str = match5.group(4)
-                end_str = match5.group(5)
-                start_str = re.sub(r'^00:', '12:', start_str)
-                end_str = re.sub(r'^00:', '12:', end_str)
-                year = datetime.now().year
-                start_dt = datetime.strptime(f"{day} {month} {year} {start_str}", "%d %B %Y %I:%M%p")
-                end_dt = datetime.strptime(f"{day} {month} {year} {end_str}", "%d %B %Y %I:%M%p")
-                if end_dt < start_dt:
-                    end_dt += timedelta(days=1)
-                if not already_parsed(start_dt, end_dt):
-                    closure_times.append((start_dt, end_dt))
-                _LOGGER.info("Parsed Format 5 closure: %s to %s", start_dt, end_dt)
-                continue
-            except ValueError as e:
-                _LOGGER.error("Error parsing format 5 closure time: %s", e)
-
-        match6 = re.search(
-            r'(?i)(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s+(\d{1,2})\s+([a-zA-Z]+)\s+(\d{4})\s+from\s+(\d{1,2}:\d{2}\s*[ap]m)\s+(?:until|to)\s+(\d{1,2}:\d{2}\s*[ap]m)',
-            re.sub(r'\s+', ' ', text)
-        )
-        if match6:
-            try:
-                day = int(match6.group(2))
-                month = match6.group(3)
-                year = int(match6.group(4))
-                start_str = match6.group(5).lower()
-                end_str = match6.group(6).lower()
-                start_str = re.sub(r'^00:', '12:', start_str)
-                end_str = re.sub(r'^00:', '12:', end_str)
-                start_dt = datetime.strptime(f"{day} {month} {year} {start_str}", "%d %B %Y %I:%M%p")
-                end_dt = datetime.strptime(f"{day} {month} {year} {end_str}", "%d %B %Y %I:%M%p")
-                if end_dt < start_dt:
-                    end_dt += timedelta(days=1)
-                if not already_parsed(start_dt, end_dt):
-                    closure_times.append((start_dt, end_dt))
-                _LOGGER.info("Parsed Format 6 closure: %s to %s", start_dt, end_dt)
-                continue
+                start_dt, end_dt = parse_time_range(text, current_explicit_date)
+                if start_dt and end_dt:
+                    duration = (end_dt - start_dt).total_seconds()
+                    if duration > 0 and duration < 86400:  # less than 24 hours
+                        if not already_parsed(start_dt, end_dt):
+                            closure_times.append((start_dt, end_dt))
+                            _LOGGER.info("Parsed closure: %s to %s", start_dt, end_dt)
+                    else:
+                        _LOGGER.warning("Discarded suspicious closure range: %s to %s", start_dt, end_dt)
+                else:
+                    _LOGGER.warning("Could not parse time range from line: '%s'", text)
             except Exception as e:
-                _LOGGER.error("Error parsing format 6 time: %s", e)
+                _LOGGER.error("Error parsing time range: %s", e)
 
-        match7 = re.search(
-            r'(?i)(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s+(\d{1,2})\s+([a-zA-Z]+)\s+(\d{4})\s+from\s+(\d{1,2}(?::\d{2})?\s*[ap]m)\s+(?:until|to)\s+(\d{1,2}(?::\d{2})?\s*[ap]m)',
-            text
-        )
-        if match7:
-            try:
-                day = int(match7.group(2))
-                month = match7.group(3)
-                year = int(match7.group(4))
-                start_str = match7.group(5).lower()
-                end_str = match7.group(6).lower()
-                start_str = re.sub(r'^00:', '12:', start_str)
-                end_str = re.sub(r'^00:', '12:', end_str)
-                start_dt = datetime.strptime(f"{day} {month} {year} {start_str}", "%d %B %Y %I%p" if ':' not in start_str else "%d %B %Y %I:%M%p")
-                end_dt = datetime.strptime(f"{day} {month} {year} {end_str}", "%d %B %Y %I%p" if ':' not in end_str else "%d %B %Y %I:%M%p")
-                if end_dt < start_dt:
-                    end_dt += timedelta(days=1)
-                if not already_parsed(start_dt, end_dt):
-                    closure_times.append((start_dt, end_dt))
-                    _LOGGER.info("Parsed Format 7 closure: %s to %s", start_dt, end_dt)
-                continue
-            except Exception as e:
-                _LOGGER.error("Error parsing format 7 time: %s", e)
-        # match9: Handle 'HH:MM to HH:MM am/pm'
-        match9 = re.search(r'(\d{1,2}:\d{2})\s+to\s+(\d{1,2}:\d{2})\s*([ap]m)', text, re.I)
-        if match9 and current_explicit_date:
-            try:
-                start_str = match9.group(1).lower()
-                end_str = match9.group(2).lower()
-                ampm = match9.group(3).lower()
-
-                full_start_str = f"{start_str}{ampm}"
-                full_end_str = f"{end_str}{ampm}"
-                
-                date_str = current_explicit_date.strftime("%d %B %Y")
-                
-                start_dt = datetime.strptime(f"{date_str} {full_start_str}", "%d %B %Y %I:%M%p")
-                end_dt = datetime.strptime(f"{date_str} {full_end_str}", "%d %B %Y %I:%M%p")
-                
-                if end_dt < start_dt:
-                    end_dt += timedelta(days=1)
-                
-                if not already_parsed(start_dt, end_dt):
-                    closure_times.append((start_dt, end_dt))
-                _LOGGER.info("Parsed new Format closure: %s to %s", start_dt, end_dt)
-                continue
-            except Exception as e:
-                _LOGGER.error("Error parsing new format time: %s", e)
-        # match8: New format - <p>Date</p> followed by <p style="margin-left: 40px">From TIME to TIME</p>
-        if p.name == "p" and 'style' in p.attrs and 'margin-left' in p.attrs['style'].lower():
-            match8 = re.search(r'from\s+(\d{1,2}:\d{2})\s*(am|pm)?\s*(?:to|until)\s+(\d{1,2}:\d{2})\s*(am|pm)', text, re.I)
-            if match8 and current_explicit_date:
-                try:
-                    start_hour = match8.group(1)
-                    start_ampm = match8.group(2) or match8.group(4)
-                    end_hour = match8.group(3)
-                    end_ampm = match8.group(4)
-                except Exception as e:
-                    _LOGGER.error("Error parsing Format 8 (indented <p>) closure: %s", e)
-
-                except Exception as e:
-                    _LOGGER.error("Error parsing Format 8 (indented <p>) closure: %s", e)
-
-        match3 = re.search(r'(?:from\s*)?(\d{1,2}:\d{2}\s*[ap]m)\s*(?:until|to)\s*(\d{1,2}:\d{2}\s*[ap]m)', text, re.I)
-        if match3:
-            try:
-                if not current_explicit_date:
-                    _LOGGER.debug("Skipping Format 3 - no current_explicit_date set.")
-                    continue
-                start_str = match3.group(1).lower()
-                end_str = match3.group(2).lower()
-                start_str = re.sub(r'^00:', '12:', start_str)
-                end_str = re.sub(r'^00:', '12:', end_str)
-                date_str = current_explicit_date.strftime("%d %B %Y")
-                start_dt = datetime.strptime(f"{date_str} {start_str}", "%d %B %Y %I:%M%p")
-                end_dt = datetime.strptime(f"{date_str} {end_str}", "%d %B %Y %I:%M%p")
-                if end_dt < start_dt:
-                    end_dt += timedelta(days=1)
-                if not already_parsed(start_dt, end_dt):
-                    closure_times.append((start_dt, end_dt))
-                _LOGGER.info("Parsed Format 3 closure: %s to %s", start_dt, end_dt)
-                continue
-            except Exception as e:
-                _LOGGER.error("Error parsing format 3 time: %s", e)
-
-        match4 = re.search(r'(\d{1,2}:\d{2}\s*[ap]m)\s+to\s+(\d{1,2}:\d{2}\s*[ap]m)', text, re.I)
-        if match4 and current_explicit_date:
-            try:
-                start_str = match4.group(1).lower()
-                end_str = match4.group(2).lower()
-                start_str = re.sub(r'^00:', '12:', start_str)
-                end_str = re.sub(r'^00:', '12:', end_str)
-                date_str = current_explicit_date.strftime("%d %B %Y")
-                start_dt = datetime.strptime(f"{date_str} {start_str}", "%d %B %Y %I:%M%p")
-                end_dt = datetime.strptime(f"{date_str} {end_str}", "%d %B %Y %I:%M%p")
-                if end_dt < start_dt:
-                    end_dt += timedelta(days=1)
-                if not already_parsed(start_dt, end_dt):
-                    closure_times.append((start_dt, end_dt))
-                _LOGGER.info("Parsed Format 4 closure: %s to %s", start_dt, end_dt)
-            except Exception as e:
-                _LOGGER.error("Error parsing format 4 time: %s", e)
-
-        # NEW FORMAT: Handle <p>Date</p> followed by sibling <li>Time Range</li>
-        if p.name == "p":
-            date_match = re.match(r'(?i)(monday|tuesday|wednesday|thursday|friday|saturday|sunday)?\s*(\d{1,2})\s+([a-zA-Z]+)\s+(\d{4})', text)
-            if date_match:
-                try:
-                    day = int(date_match.group(2))
-                    month = date_match.group(3)
-                    year = int(date_match.group(4))
-                    date_context = datetime.strptime(f"{day} {month} {year}", "%d %B %Y")
-                    _LOGGER.debug("Set date_context from nested <p>: %s", date_context)
-
-                    next_tag = p.find_next_sibling()
-                    while next_tag and next_tag.name not in ["li", "p"]:
-                        next_tag = next_tag.find_next_sibling()
-
-                    if next_tag and next_tag.name == "li":
-                        time_text = next_tag.get_text(strip=True).lower()
-                        time_match = re.match(r'(\d{1,2}:\d{2}\s*[ap]m)\s+(until|to)\s+(\d{1,2}:\d{2}\s*[ap]m)', time_text)
-                        if time_match:
-                            start_str = time_match.group(1)
-                            end_str = time_match.group(3)
-                            start_dt = datetime.strptime(f"{day} {month} {year} {start_str}", "%d %B %Y %I:%M%p")
-                            end_dt = datetime.strptime(f"{day} {month} {year} %I:%M%p".format(day=day, month=month, year=year, end_str=end_str))
-                            if end_dt < start_dt:
-                                end_dt += timedelta(days=1)
-                            if not already_parsed(start_dt, end_dt):
-                                closure_times.append((start_dt, end_dt))
-                            _LOGGER.info("Parsed nested <p> + <li> closure: %s to %s", start_dt, end_dt)
-                except Exception as e:
-                    _LOGGER.error("Error in nested <p> + <li> closure logic: %s", e)
-
-        # NEW FORMAT: Handle freetext <p> time ranges like 'From 9.30 to 10:30pm'
-        if p.name == "p" and current_explicit_date:
-            fuzzy_match = re.match(r'from\s+(\d{1,2}(?::\d{2}|\.\d{2})?)\s*(am|pm)?\s*(?:to|until)\s+(\d{1,2}(?::\d{2}|\.\d{2})?\s*[ap]m)', text)
-            if fuzzy_match:
-                try:
-                    start_time_raw = fuzzy_match.group(1).replace('.', ':')
-                    start_ampm = fuzzy_match.group(2)
-                    end_time_str = fuzzy_match.group(3).replace('.', ':')
-                    if not start_ampm:
-                        if 'am' in end_time_str.lower():
-                            start_ampm = 'am'
-                        elif 'pm' in end_time_str.lower():
-                            start_ampm = 'pm'
-                        else:
-                            start_ampm = 'pm'
-                    start_str = f"{start_time_raw}{start_ampm}".lower()
-                    end_str = end_time_str.lower()
-                    start_str = re.sub(r'^00:', '12:', start_str)
-                    end_str = re.sub(r'^00:', '12:', end_str)
-                    date_str = current_explicit_date.strftime("%d %B %Y")
-                    start_dt = datetime.strptime(f"{date_str} {start_str}", "%d %B %Y %I:%M%p" if ':' in start_str else "%d %B %Y %I%p")
-                    end_dt = datetime.strptime(f"{date_str} {end_str}", "%d %B %Y %I:%M%p" if ':' in end_str else "%d %B %Y %I%p")
-                    if end_dt < start_dt:
-                        end_dt += timedelta(days=1)
-                    if not already_parsed(start_dt, end_dt):
-                        closure_times.append((start_dt, end_dt))
-                    _LOGGER.info("Parsed fuzzy freetext <p> closure: %s to %s", start_dt, end_dt)
-                except Exception as e:
-                    _LOGGER.error("Error parsing fuzzy freetext <p> format: %s", e)
-
-    _LOGGER.info("Total parsed closures: %d", len(closure_times))
+    closure_times.sort(key=lambda c: c[0])
 
     now = datetime.now()
-    next_closure = None
+    bridge_closed = False
     current_closure_end_time = None
-    
-    # Check for any ongoing closure to set bridge_closed state and get the end time
+    next_closure = None
+
     for start, end in closure_times:
         if start <= now <= end:
             bridge_closed = True
             current_closure_end_time = end
             break
-            
-    # Find the next future closure, separate from the current state
+
     upcoming = [c for c in closure_times if c[0] > now]
     if upcoming:
         next_closure = min(upcoming, key=lambda c: c[0])
-    
-    _LOGGER.debug("is_currently_closed: %s", bridge_closed)
-    _LOGGER.debug("current_closure_end_time: %s", current_closure_end_time)
-    _LOGGER.debug("next_closure: %s", next_closure)
-    
-    if not planned_closures and not bridge_closed:
-        _LOGGER.info("Confirmed: No closures currently scheduled.")
-        
-    elif not closure_times and planned_closures:
-        _LOGGER.warning("No closure times were parsed from the page.")
-        
+
     result = {
         'bridge_closed': bridge_closed,
         'next_closure_start': next_closure[0].isoformat() if next_closure else None,

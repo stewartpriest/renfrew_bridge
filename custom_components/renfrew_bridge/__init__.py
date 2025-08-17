@@ -19,7 +19,7 @@ async def async_setup_entry(hass, entry):
     
     # Perform a single, initial data fetch
     _LOGGER.info("Performing initial data fetch for Renfrew Bridge")
-    initial_data = await hass.async_add_executor_job(get_bridge_status)
+    initial_data = await hass.async_add_executor_job(get_bridge_status, entry.options)
     
     # Create the coordinator
     coordinator = RenfrewBridgeDataUpdateCoordinator(hass, refresh_minutes)

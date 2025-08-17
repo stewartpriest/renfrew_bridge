@@ -6,5 +6,15 @@
         "title": "Setup Renfrew Bridge Integration"
       }
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Renfrew Bridge Options",
+        "data": {
+          "refresh_minutes": "Refresh interval (minutes)"
+        }
+      }
+    }
   }
 }
