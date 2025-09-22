@@ -1,46 +1,41 @@
 import logging
-from datetime import datetime, timedelta
-
 from homeassistant.components.sensor import SensorEntity
-from homeassistant.components.binary_sensor import BinarySensorEntity
-from .const import DOMAIN, CONF_REFRESH_MINUTES, DEFAULT_REFRESH_MINUTES
-from custom_components.renfrew_bridge.bridge_status import get_bridge_status
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from .const import DOMAIN
+from datetime import datetime, timedelta
 
 _LOGGER = logging.getLogger(__name__)
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
-    _LOGGER.info("Renfrew Bridge: async_setup_entry called")
-
-    refresh_minutes = config_entry.options.get(CONF_REFRESH_MINUTES) or config_entry.data.get(CONF_REFRESH_MINUTES, DEFAULT_REFRESH_MINUTES)
-    entry_id = config_entry.entry_id
+    """Set up Renfrew Bridge sensors from a config entry."""
+    coordinator = hass.data[DOMAIN][config_entry.entry_id]
 
     entities = [
-        RenfrewBridgeStatusSensor("Renfrew Bridge Status", refresh_minutes, entry_id),
-        RenfrewBridgeNextClosurePrettySensor("Renfrew Bridge Next Closure (Pretty)", refresh_minutes, entry_id),
-        RenfrewBridgeUpcomingClosureCountSensor("Renfrew Bridge Upcoming Closure Count", refresh_minutes, entry_id),
-        RenfrewBridgeCurrentClosureEndsSensor("Renfrew Bridge Current Closure Ends", refresh_minutes, entry_id),
-        RenfrewBridgeCurrentClosureEndsPrettySensor("Renfrew Bridge Current Closure Ends Pretty", refresh_minutes, entry_id)
+        RenfrewBridgeStatusSensor(coordinator, "Renfrew Bridge Status"),
+        RenfrewBridgeNextClosureStartsPrettySensor(coordinator, "Renfrew Bridge Next Closure Starts (Pretty)"),
+        RenfrewBridgeNextClosureEndsPrettySensor(coordinator, "Renfrew Bridge Next Closure Ends (Pretty)"),
+        RenfrewBridgeUpcomingClosureCountSensor(coordinator, "Renfrew Bridge Upcoming Closure Count"),
+        RenfrewBridgeCurrentClosureEndsSensor(coordinator, "Renfrew Bridge Current Closure Ends"),
+        RenfrewBridgeCurrentClosureEndsPrettySensor(coordinator, "Renfrew Bridge Current Closure Ends Pretty"),
+        RenfrewBridgeNextClosureStartsSensor(coordinator, "Renfrew Bridge Next Closure Starts")
     ]
-
     async_add_entities(entities)
 
+class RenfrewBridgeBaseSensor(CoordinatorEntity, SensorEntity):
+    """Base class for Renfrew Bridge sensors."""
 
-class TimedUpdateSensor(SensorEntity):
-    def __init__(self, name, refresh_minutes, entry_id):
+    def __init__(self, coordinator, name):
+        """Initialize the sensor."""
+        super().__init__(coordinator)
         self._attr_name = name
-        self._attr_native_value = None
-        self._refresh = timedelta(minutes=refresh_minutes)
-        self._last_update = datetime.min
-        self._entry_id = entry_id
+        self._entry_id = coordinator.config_entry.entry_id
         slug = name.lower().replace(" ", "_").replace("(", "").replace(")", "")
-        self._attr_unique_id = f"{entry_id}_{slug}"
-        self._attr_icon = self._default_icon()
-
-    def should_update(self):
-        return datetime.now() - self._last_update >= self._refresh
+        self._attr_unique_id = f"{self._entry_id}_{slug}"
+        self._attr_icon = "mdi:calendar-clock"
 
     @property
     def device_info(self):
+        """Return the device info."""
         return {
             "identifiers": {(DOMAIN, self._entry_id)},
             "name": "Renfrew Bridge",
@@ -48,149 +43,113 @@ class TimedUpdateSensor(SensorEntity):
             "entry_type": "service"
         }
 
-    def _default_icon(self):
-        return "mdi:calendar-clock"
-
-
-    def should_update(self):
-        return datetime.now() - self._last_update >= self._refresh
+class RenfrewBridgeStatusSensor(RenfrewBridgeBaseSensor):
+    """Sensor for the current bridge status."""
+    @property
+    def native_value(self):
+        """Return the state of the sensor."""
+        data = self.coordinator.data
+        if not data:
+            return None
+        return "closed" if data['bridge_closed'] else "open"
 
     @property
-    def device_info(self):
-        return {
-            "identifiers": {(DOMAIN, self._entry_id)},
-            "name": "Renfrew Bridge",
-            "manufacturer": "Renfrewshire Council/West Dumbartonshire Council",
-            "entry_type": "service"
-        }
+    def icon(self):
+        """Return the icon."""
+        return "mdi:bridge"
 
-
-class RenfrewBridgeStatusSensor(TimedUpdateSensor):
-    def update(self):
-        if not self.should_update():
-            return
+class RenfrewBridgeNextClosureStartsPrettySensor(RenfrewBridgeBaseSensor):
+    """Sensor for the next closure in a pretty format."""
+    @property
+    def native_value(self):
+        """Return the state of the sensor."""
+        data = self.coordinator.data
+        if not data or not data.get("next_closure_start"):
+            return None
         try:
-            status = get_bridge_status()
-            _LOGGER.info("Bridge status sensor received: %s", status)
-            self._attr_native_value = "closed" if status['bridge_closed'] else "open"
-            self._last_update = datetime.now()
-            self._attr_icon = "mdi:bridge"
-        except Exception as e:
-            _LOGGER.error("Failed to update Renfrew Bridge status: %s", e)
-            self._attr_native_value = None
+            dt = datetime.fromisoformat(data["next_closure_start"])
+            return dt.strftime("%d/%m/%Y %H:%M")
+        except ValueError:
+            return None
 
-
-        if not self.should_update():
-            return
+class RenfrewBridgeNextClosureEndsPrettySensor(RenfrewBridgeBaseSensor):
+    """Sensor for the next closure end in a pretty format."""
+    @property
+    def native_value(self):
+        """Return the state of the sensor."""
+        data = self.coordinator.data
+        if not data or not data.get("next_closure_end"):
+            return None
         try:
-            status = get_bridge_status()
-            _LOGGER.info("Binary bridge status sensor received: %s", status)
-            self._attr_is_on = status["bridge_closed"]
-            self._last_update = datetime.now()
-        except Exception as e:
-            _LOGGER.error("Failed to update binary bridge status: %s", e)
-            self._attr_is_on = None
+            dt = datetime.fromisoformat(data["next_closure_end"])
+            return dt.strftime("%d/%m/%Y %H:%M")
+        except ValueError:
+            return None
 
+class RenfrewBridgeUpcomingClosureCountSensor(RenfrewBridgeBaseSensor):
+    """Sensor for the count of upcoming closures."""
+    def __init__(self, coordinator, name):
+        super().__init__(coordinator, name)
+        self._attr_icon = "mdi:counter"
 
-class RenfrewBridgeNextClosureSensor(TimedUpdateSensor):
-    def update(self):
-        if not self.should_update():
-            return
+    @property
+    def native_value(self):
+        """Return the state of the sensor."""
+        data = self.coordinator.data
+        if not data or not data.get("closure_times"):
+            return 0
+        now = datetime.now()
+        count = len([c for c in data["closure_times"] if c[0] > now])
+        return count
+
+    @property
+    def extra_state_attributes(self):
+        """Return the state attributes."""
+        data = self.coordinator.data
+        attributes = {}
+        if data and data.get("closure_times"):
+            upcoming_closures = []
+            now = datetime.now()
+            for start_time, end_time in data["closure_times"]:
+                if start_time > now:
+                    upcoming_closures.append({
+                        "start": start_time.isoformat(),
+                        "end": end_time.isoformat()
+                    })
+            attributes["upcoming_closures"] = upcoming_closures
+        return attributes
+
+class RenfrewBridgeCurrentClosureEndsSensor(RenfrewBridgeBaseSensor):
+    """Sensor for when the current closure ends."""
+    @property
+    def native_value(self):
+        """Return the state of the sensor."""
+        data = self.coordinator.data
+        if not data or not data.get("current_closure_end"):
+            return None
+        return data.get("current_closure_end")
+
+class RenfrewBridgeCurrentClosureEndsPrettySensor(RenfrewBridgeBaseSensor):
+    """Sensor for when the current closure ends in a pretty format."""
+    @property
+    def native_value(self):
+        """Return the state of the sensor."""
+        data = self.coordinator.data
+        if not data or not data.get("current_closure_end"):
+            return None
         try:
-            status = get_bridge_status()
-            value = status.get("next_closure_start")
-            if value is None:
-                _LOGGER.warning("Next closure sensor: No upcoming closures detected (next_closure_start is None)")
-            else:
-                _LOGGER.info("Next closure sensor: next_closure_start = %s", value)
-            self._attr_native_value = value
-            self._last_update = datetime.now()
-        except Exception as e:
-            _LOGGER.error("Failed to update Renfrew Bridge next closure: %s", e)
-            self._attr_native_value = None
+            end_time_str = data["current_closure_end"]
+            end_dt = datetime.fromisoformat(end_time_str)
+            return end_dt.strftime("%d/%m/%Y %H:%M")
+        except ValueError:
+            return None
 
-
-class RenfrewBridgeNextClosurePrettySensor(TimedUpdateSensor):
-    def update(self):
-        if not self.should_update():
-            return
-        try:
-            status = get_bridge_status()
-            raw = status.get("next_closure_start")
-            if raw is None:
-                _LOGGER.warning("Pretty closure sensor: next_closure_start is None (no upcoming closures?)")
-                self._attr_native_value = "None"
-            else:
-                dt = datetime.fromisoformat(raw)
-                pretty = dt.strftime("%d/%m/%Y %H:%M")
-                _LOGGER.info("Pretty closure sensor: formatted %s to '%s'", raw, pretty)
-                self._attr_native_value = pretty
-            self._last_update = datetime.now()
-        except Exception as e:
-            _LOGGER.error("Failed to format Renfrew Bridge next closure pretty: %s", e)
-            self._attr_native_value = None
-
-
-class RenfrewBridgeUpcomingClosureCountSensor(TimedUpdateSensor):
-    def _default_icon(self):
-        return "mdi:counter"
-
-    def update(self):
-        if not self.should_update():
-            return
-        try:
-            status = get_bridge_status()
-            _LOGGER.info("Upcoming closure count sensor received: %s", status)
-            closure_times = status.get("closure_times", [])
-            count = len([c for c in closure_times if c[0] > datetime.now()])
-            self._attr_native_value = count
-            self._last_update = datetime.now()
-        except Exception as e:
-            _LOGGER.error("Failed to update Renfrew Bridge upcoming closure count: %s", e)
-            self._attr_native_value = None
-
-
-class RenfrewBridgeCurrentClosureEndsSensor(TimedUpdateSensor):
-    def update(self):
-        if not self.should_update():
-            return
-        try:
-            status = get_bridge_status()
-            _LOGGER.info("Current closure end sensor received: %s", status)
-            if status.get("bridge_closed") and status.get("next_closure_start") and status.get("next_closure_end"):
-                now = datetime.now()
-                start = datetime.fromisoformat(status["next_closure_start"])
-                end = datetime.fromisoformat(status["next_closure_end"])
-                if start <= now <= end:
-                    self._attr_native_value = status["next_closure_end"]
-                else:
-                    self._attr_native_value = None
-            else:
-                self._attr_native_value = None
-            self._last_update = datetime.now()
-        except Exception as e:
-            _LOGGER.error("Failed to update current closure ends sensor: %s", e)
-            self._attr_native_value = None
-
-
-class RenfrewBridgeCurrentClosureEndsPrettySensor(TimedUpdateSensor):
-    def update(self):
-        if not self.should_update():
-            return
-        try:
-            status = get_bridge_status()
-            _LOGGER.info("Current closure end (pretty) sensor received: %s", status)
-            if status.get("bridge_closed") and status.get("next_closure_start") and status.get("next_closure_end"):
-                now = datetime.now()
-                start = datetime.fromisoformat(status["next_closure_start"])
-                end = datetime.fromisoformat(status["next_closure_end"])
-                if start <= now <= end:
-                    self._attr_native_value = end.strftime("%d/%m/%Y %H:%M")
-                else:
-                    self._attr_native_value = None
-            else:
-                self._attr_native_value = None
-            self._last_update = datetime.now()
-        except Exception as e:
-            _LOGGER.error("Failed to update current closure ends pretty sensor: %s", e)
-            self._attr_native_value = None
+class RenfrewBridgeNextClosureStartsSensor(RenfrewBridgeBaseSensor):
+    """Sensor for the next closure start in ISO format."""
+    @property
+    def native_value(self):
+        """Return the state of the sensor."""
+        data = self.coordinator.data
+        if not data or not data.get("next_closure_start"):
+            return None
+        return data.get("next_closure_start")

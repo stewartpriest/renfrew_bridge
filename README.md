@@ -21,12 +21,15 @@ It’s especially useful for residents and commuters near **Braehead, Renfrew, C
 
 ## 🧰 Features
 
+
 | Entity | Description |
-|--------|-------------|
-| `binary_sensor.renfrew_bridge` | Shows `on` when the bridge is **open** (for voice assistant compatibility) |
+|---|---|
+| `binary_sensor.renfrew_bridge` | Shows **`on`** when the bridge is **open** (for voice assistant compatibility) |
 | `sensor.renfrew_bridge_status` | Raw status from the site (`open`/`closed`) |
-| `sensor.renfrew_bridge_next_closure` | ISO 8601 datetime of the next planned closure |
-| `sensor.renfrew_bridge_next_closure_pretty` | Human-friendly format: `DD/MM/YYYY HH:mm` |
+| `sensor.renfrew_bridge_next_closure_starts` | ISO 8601 datetime of the next planned closure start time |
+| `sensor.renfrew_bridge_next_closure_starts_pretty` | Human-friendly format of next closure start time: `DD/MM/YYYY HH:mm` |
+| `sensor.renfrew_bridge_next_closure_ends` | ISO 8601 datetime of the next planned closure end time |
+| `sensor.renfrew_bridge_next_closure_ends_pretty` | Human-friendly format of next closure end time: `DD/MM/YYYY HH:mm` |
 | `sensor.renfrew_bridge_upcoming_closure_count` | Integer count of future closures (excluding any ongoing one) |
 | `sensor.renfrew_bridge_current_closure_ends` | ISO datetime for when the current closure ends (if bridge is closed) |
 | `sensor.renfrew_bridge_current_closure_ends_pretty` | Human-friendly format of closure end time: `DD/MM/YYYY HH:mm` |

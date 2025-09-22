@@ -1,0 +1,34 @@
+name: Create Release
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Get clean version
+        id: get_clean_version
+        run: |
+          TAG_NAME=$(echo ${{ github.ref }} | sed 's/refs\/tags\///')
+          CLEAN_VERSION=$(echo $TAG_NAME | sed 's/^v//')
+          echo "CLEAN_VERSION=$CLEAN_VERSION" >> $GITHUB_ENV
+      
+      - name: Patch manifest and create zip
+        run: |
+          sed -i 's/"version": ".*"/"version": "${{ env.CLEAN_VERSION }}"/' custom_components/renfrew_bridge/manifest.json
+          cd custom_components/renfrew_bridge/
+          zip -r ../../renfrew_bridge.zip ./* -x '.*'
+
+      - name: Upload Release Asset
+        uses: JasonEtco/upload-to-release@master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          args: ./renfrew_bridge.zip application/zip

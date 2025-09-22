@@ -1,0 +1,5 @@
+
+manual_update:
+  name: Manual Update
+  description: Manually triggers a refresh of the Renfrew Bridge sensor data.
+  fields: {}
