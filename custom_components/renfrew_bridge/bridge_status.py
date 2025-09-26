@@ -125,8 +125,11 @@ def get_bridge_status(options=None):
         if re.match(r'^(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s', text, re.IGNORECASE):
             text = re.sub(r'^(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s+', '', text, flags=re.IGNORECASE)
 
+        # Remove parenthetical notes like "(Friday night)"
+        date_candidate = re.sub(r"\(.*?\)", "", text).strip()
+
         standalone_date = dateparser.parse(
-            text,
+            date_candidate,
             settings={
                 "PREFER_DAY_OF_MONTH": "first",
                 "PREFER_DATES_FROM": "past",
